@@ -538,13 +538,7 @@ void vm_exit(int code) {
   // VMThread, and it doesn't terminate on this exit path. See 8222534.
 
   if (VMThread::vm_thread() != NULL) {
-    if (thread->is_Java_thread()) {
-      // We must be "in_vm" for the code below to work correctly.
-      // Historically there must have been some exit path for which
-      // that was not the case and so we set it explicitly - even
-      // though we no longer know what that path may be.
-      thread->as_Java_thread()->set_thread_state(_thread_in_vm);
-    }
+    ThreadInVMfromUnknown tivfu;
 
     // Fire off a VM_Exit operation to bring VM to a safepoint and exit
     VM_Exit op(code);
@@ -592,10 +586,7 @@ void vm_perform_shutdown_actions() {
       // We are leaving the VM, set state to native (in case any OS exit
       // handlers call back to the VM)
       JavaThread* jt = thread->as_Java_thread();
-      // Must always be walkable or have no last_Java_frame when in
-      // thread_in_native
-      jt->frame_anchor()->make_walkable(jt);
-      jt->set_thread_state(_thread_in_native);
+      TransitionFromUnsafe::trans(jt, jt->thread_state(), _thread_in_native);
     }
   }
   notify_vm_shutdown();

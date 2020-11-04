@@ -530,111 +530,56 @@ void Thread::send_async_exception(oop java_thread, oop java_throwable) {
 // cancelled). Returns true if the thread is externally suspended and
 // false otherwise.
 bool JavaThread::is_ext_suspend_completed() {
-  bool did_trans_retry = false;  // only do thread_in_native_trans retry once
-  bool do_trans_retry;           // flag to force the retry
+  if (is_exiting()) {
+    // Thread is in the process of exiting. This is always checked
+    // first to reduce the risk of dereferencing a freed JavaThread.
+    return false;
+  }
 
-  do {
-    do_trans_retry = false;
+  if (!is_external_suspend()) {
+    // Suspend request is cancelled. This is always checked before
+    // is_ext_suspended() to reduce the risk of a rogue resume
+    // confusing the thread that made the suspend request.
+    return false;
+  }
 
-    if (is_exiting()) {
-      // Thread is in the process of exiting. This is always checked
-      // first to reduce the risk of dereferencing a freed JavaThread.
-      return false;
-    }
+  if (is_ext_suspended()) {
+    // thread is suspended
+    return true;
+  }
 
-    if (!is_external_suspend()) {
-      // Suspend request is cancelled. This is always checked before
-      // is_ext_suspended() to reduce the risk of a rogue resume
-      // confusing the thread that made the suspend request.
-      return false;
-    }
+  // Now that we no longer do hard suspends of threads running
+  // native code, the target thread can be changing thread state
+  // while we are in this routine:
+  //
+  //   _thread_in_native -> _thread_in_native_trans -> _thread_blocked
+  //
+  // We save a copy of the thread state as observed at this moment
+  // and make our decision about suspend completeness based on the
+  // copy. This closes the race where the thread state is seen as
+  // _thread_in_native_trans in the if-thread_blocked check, but is
+  // seen as _thread_blocked in if-thread_in_native_trans check.
+  JavaThreadState save_state = thread_state();
 
-    if (is_ext_suspended()) {
-      // thread is suspended
-      return true;
-    }
-
-    // Now that we no longer do hard suspends of threads running
-    // native code, the target thread can be changing thread state
-    // while we are in this routine:
+  if (save_state == _thread_blocked && is_suspend_equivalent()) {
+    // If the thread's state is _thread_blocked and this blocking
+    // condition is known to be equivalent to a suspend, then we can
+    // consider the thread to be externally suspended. This means that
+    // the code that sets _thread_blocked has been modified to do
+    // self-suspension if the blocking condition releases. We also
+    // used to check for CONDVAR_WAIT here, but that is now covered by
+    // the _thread_blocked with self-suspension check.
     //
-    //   _thread_in_native -> _thread_in_native_trans -> _thread_blocked
-    //
-    // We save a copy of the thread state as observed at this moment
-    // and make our decision about suspend completeness based on the
-    // copy. This closes the race where the thread state is seen as
-    // _thread_in_native_trans in the if-thread_blocked check, but is
-    // seen as _thread_blocked in if-thread_in_native_trans check.
-    JavaThreadState save_state = thread_state();
-
-    if (save_state == _thread_blocked && is_suspend_equivalent()) {
-      // If the thread's state is _thread_blocked and this blocking
-      // condition is known to be equivalent to a suspend, then we can
-      // consider the thread to be externally suspended. This means that
-      // the code that sets _thread_blocked has been modified to do
-      // self-suspension if the blocking condition releases. We also
-      // used to check for CONDVAR_WAIT here, but that is now covered by
-      // the _thread_blocked with self-suspension check.
-      //
-      // Return true since we wouldn't be here unless there was still an
-      // external suspend request.
-      return true;
-    } else if (save_state == _thread_in_native && frame_anchor()->walkable()) {
-      // Threads running native code will self-suspend on native==>VM/Java
-      // transitions. If its stack is walkable (should always be the case
-      // unless this function is called before the actual java_suspend()
-      // call), then the wait is done.
-      return true;
-    } else if (!did_trans_retry &&
-               save_state == _thread_in_native_trans &&
-               frame_anchor()->walkable()) {
-      // The thread is transitioning from thread_in_native to another
-      // thread state. check_safepoint_and_suspend_for_native_trans()
-      // will force the thread to self-suspend. If it hasn't gotten
-      // there yet we may have caught the thread in-between the native
-      // code check above and the self-suspend.
-      //
-      // Since we use the saved thread state in the if-statement above,
-      // there is a chance that the thread has already transitioned to
-      // _thread_blocked by the time we get here. In that case, we will
-      // make a single unnecessary pass through the logic below. This
-      // doesn't hurt anything since we still do the trans retry.
-
-      // Once the thread leaves thread_in_native_trans for another
-      // thread state, we break out of this retry loop. We shouldn't
-      // need this flag to prevent us from getting back here, but
-      // sometimes paranoia is good.
-      did_trans_retry = true;
-
-      // We wait for the thread to transition to a more usable state.
-      for (int i = 1; i <= SuspendRetryCount; i++) {
-        // We used to do an "os::yield_all(i)" call here with the intention
-        // that yielding would increase on each retry. However, the parameter
-        // is ignored on Linux which means the yield didn't scale up. Waiting
-        // on the SR_lock below provides a much more predictable scale up for
-        // the delay. It also provides a simple/direct point to check for any
-        // safepoint requests from the VMThread
-
-        // temporarily drops SR_lock while doing wait with safepoint check
-        // (if we're a JavaThread - the WatcherThread can also call this)
-        // and increase delay with each retry
-        if (Thread::current()->is_Java_thread()) {
-          SR_lock()->wait(i * SuspendRetryDelay);
-        } else {
-          SR_lock()->wait_without_safepoint_check(i * SuspendRetryDelay);
-        }
-
-        // check the actual thread state instead of what we saved above
-        if (thread_state() != _thread_in_native_trans) {
-          // the thread has transitioned to another thread state so
-          // try all the checks (except this one) one more time.
-          do_trans_retry = true;
-          break;
-        }
-      } // end retry loop
-    }
-  } while (do_trans_retry);
-
+    // Return true since we wouldn't be here unless there was still an
+    // external suspend request.
+    return true;
+  } else if (save_state == _thread_in_native && frame_anchor()->walkable()) {
+    // Threads running native code will self-suspend on native==>VM/Java
+    // transitions. If its stack is walkable (should always be the case
+    // unless this function is called before the actual java_suspend()
+    // call), then the wait is done.
+    return true;
+  }
   return false;
 }
 
@@ -1756,7 +1701,7 @@ void JavaThread::run() {
 
   // Thread is now sufficiently initialized to be handled by the safepoint code as being
   // in the VM. Change thread state from _thread_new to _thread_in_vm
-  ThreadStateTransition::transition(this, _thread_new, _thread_in_vm);
+  TransitionFromUnsafe::trans(this, _thread_new, _thread_in_vm);
   // Before a thread is on the threads list it is always safe, so after leaving the
   // _thread_new we should emit a instruction barrier. The distance to modified code
   // from here is probably far enough, but this is consistent and safe.
@@ -2403,17 +2348,8 @@ void JavaThread::java_suspend_self_with_safepoint_check() {
   JavaThreadState state = thread_state();
 
   do {
-    set_thread_state(_thread_blocked);
+    ThreadBlockInVM tbiv(this);
     java_suspend_self();
-    // The current thread could have been suspended again. We have to check for
-    // suspend after restoring the saved state. Without this the current thread
-    // might return to _thread_in_Java and execute bytecodes for an arbitrary
-    // long time.
-    set_thread_state_fence(state);
-
-    if (state != _thread_in_native) {
-      SafepointMechanism::process_if_requested(this);
-    }
   } while (is_external_suspend());
 }
 
@@ -2439,11 +2375,7 @@ void JavaThread::wait_for_object_deoptimization() {
 
   bool spin_wait = os::is_MP();
   do {
-    set_thread_state(_thread_blocked);
-    // Check if _external_suspend was set in the previous loop iteration.
-    if (is_external_suspend()) {
-      java_suspend_self();
-    }
+    ThreadBlockInVM tbiv(this);
     // Wait for object deoptimization if requested.
     if (spin_wait) {
       // A single deoptimization is typically very short. Microbenchmarks
@@ -2461,17 +2393,7 @@ void JavaThread::wait_for_object_deoptimization() {
         ml.wait();
       }
     }
-    // The current thread could have been suspended again. We have to check for
-    // suspend after restoring the saved state. Without this the current thread
-    // might return to _thread_in_Java and execute bytecode.
-    set_thread_state_fence(state);
-
-    if (state != _thread_in_native) {
-      SafepointMechanism::process_if_requested(this);
-    }
-    // A handshake for obj. deoptimization suspend could have been processed so
-    // we must check after processing.
-  } while (is_obj_deopt_suspend() || is_external_suspend());
+  } while (is_obj_deopt_suspend());
 }
 
 #ifdef ASSERT
@@ -2489,25 +2411,14 @@ void JavaThread::verify_not_published() {
 // progress or when _suspend_flags is non-zero.
 // Current thread needs to self-suspend if there is a suspend request and/or
 // block if a safepoint is in progress.
-// Async exception ISN'T checked.
-// Note only the ThreadInVMfromNative transition can call this function
-// directly and when thread state is _thread_in_native_trans
-void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread) {
-  assert(thread->thread_state() == _thread_in_native_trans, "wrong state");
-  assert(!thread->has_last_Java_frame() || thread->frame_anchor()->walkable(), "Unwalkable stack in native->vm transition");
-
-  SafepointMechanism::process_if_requested_with_exit_check(thread, false /* check asyncs */);
-}
-
-// Slow path when the native==>VM/Java barriers detect a safepoint is in
-// progress or when _suspend_flags is non-zero.
-// Current thread needs to self-suspend if there is a suspend request and/or
-// block if a safepoint is in progress.
 // Also check for pending async exception (not including unsafe access error).
 // Note only the native==>VM/Java barriers can call this function and when
 // thread state is _thread_in_native_trans.
 void JavaThread::check_special_condition_for_native_trans(JavaThread *thread) {
-  check_safepoint_and_suspend_for_native_trans(thread);
+  assert(!thread->has_last_Java_frame() || thread->frame_anchor()->walkable(), "Unwalkable stack in native->vm transition");
+  TransitionFromUnsafe::trans(thread, _thread_in_Java, _thread_in_vm);
+
+  SafepointMechanism::process_if_requested_with_exit_check(thread, false /* check asyncs */);
 
   // After returning from native, it could be that the stack frames are not
   // yet safe to use. We catch such situations in the subsequent stack watermark
@@ -2721,15 +2632,10 @@ const char* _get_thread_state_name(JavaThreadState _thread_state) {
   switch (_thread_state) {
   case _thread_uninitialized:     return "_thread_uninitialized";
   case _thread_new:               return "_thread_new";
-  case _thread_new_trans:         return "_thread_new_trans";
   case _thread_in_native:         return "_thread_in_native";
-  case _thread_in_native_trans:   return "_thread_in_native_trans";
   case _thread_in_vm:             return "_thread_in_vm";
-  case _thread_in_vm_trans:       return "_thread_in_vm_trans";
   case _thread_in_Java:           return "_thread_in_Java";
-  case _thread_in_Java_trans:     return "_thread_in_Java_trans";
   case _thread_blocked:           return "_thread_blocked";
-  case _thread_blocked_trans:     return "_thread_blocked_trans";
   default:                        return "unknown thread state";
   }
 }
