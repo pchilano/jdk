@@ -79,58 +79,6 @@
 
 ///////////////////////////////////////////////////////////////
 //
-// JvmtiEventTransition
-//
-// TO DO --
-//  more handle purging
-
-// Use this for JavaThreads and state is  _thread_in_vm.
-class JvmtiJavaThreadEventTransition : StackObj {
-private:
-  ResourceMark _rm;
-  ThreadToNativeFromVM _transition;
-  HandleMark _hm;
-
-public:
-  JvmtiJavaThreadEventTransition(JavaThread *thread) :
-    _rm(),
-    _transition(thread),
-    _hm(thread)  {};
-};
-
-// For JavaThreads which are not in _thread_in_vm state
-// and other system threads use this.
-class JvmtiThreadEventTransition : StackObj {
-private:
-  ResourceMark _rm;
-  HandleMark _hm;
-  JavaThreadState _saved_state;
-  JavaThread *_jthread;
-
-public:
-  JvmtiThreadEventTransition(Thread *thread) : _rm(), _hm(thread) {
-    if (thread->is_Java_thread()) {
-       _jthread = thread->as_Java_thread();
-       _saved_state = _jthread->thread_state();
-       if (_saved_state == _thread_in_Java) {
-         ThreadStateTransition::transition_from_java(_jthread, _thread_in_native);
-       } else {
-         ThreadStateTransition::transition(_jthread, _saved_state, _thread_in_native);
-       }
-    } else {
-      _jthread = NULL;
-    }
-  }
-
-  ~JvmtiThreadEventTransition() {
-    if (_jthread != NULL)
-      ThreadStateTransition::transition_from_native(_jthread, _saved_state);
-  }
-};
-
-
-///////////////////////////////////////////////////////////////
-//
 // JvmtiEventMark
 //
 
@@ -649,7 +597,7 @@ void JvmtiExport::post_early_vm_start() {
       EVT_TRACE(JVMTI_EVENT_VM_START, ("Evt Early VM start event sent" ));
       JavaThread *thread  = JavaThread::current();
       JvmtiThreadEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventVMStart callback = env->callbacks()->VMStart;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env());
@@ -672,7 +620,7 @@ void JvmtiExport::post_vm_start() {
 
       JavaThread *thread  = JavaThread::current();
       JvmtiThreadEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventVMStart callback = env->callbacks()->VMStart;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env());
@@ -715,7 +663,7 @@ void JvmtiExport::post_vm_initialized() {
 
       JavaThread *thread  = JavaThread::current();
       JvmtiThreadEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventVMInit callback = env->callbacks()->VMInit;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread());
@@ -735,7 +683,7 @@ void JvmtiExport::post_vm_death() {
 
       JavaThread *thread  = JavaThread::current();
       JvmtiEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventVMDeath callback = env->callbacks()->VMDeath;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env());
@@ -968,7 +916,7 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
     JvmtiClassFileLoadEventMark jem(_thread, _h_name, _class_loader,
                                     _h_protection_domain,
                                     _class_being_redefined);
-    JvmtiJavaThreadEventTransition jet(_thread);
+    ThreadToNativeFromVM jet(_thread);
     jvmtiEventClassFileLoadHook callback = env->callbacks()->ClassFileLoadHook;
     if (callback != NULL) {
       (*callback)(env->jvmti_external(), jem.jni_env(),
@@ -1163,7 +1111,7 @@ void JvmtiExport::post_compiled_method_unload(
       ResourceMark rm(thread);
 
       JvmtiEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventCompiledMethodUnload callback = env->callbacks()->CompiledMethodUnload;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), method, code_begin);
@@ -1201,7 +1149,7 @@ void JvmtiExport::post_raw_breakpoint(JavaThread *thread, Method* method, addres
 
       JvmtiEnv *env = ets->get_env();
       JvmtiLocationEventMark jem(thread, mh, location);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventBreakpoint callback = env->callbacks()->Breakpoint;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1328,7 +1276,7 @@ void JvmtiExport::post_class_load(JavaThread *thread, Klass* klass) {
                                          JvmtiTrace::safe_get_thread_name(thread),
                                          klass==NULL? "NULL" : klass->external_name() ));
       JvmtiClassEventMark jem(thread, klass);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventClassLoad callback = env->callbacks()->ClassLoad;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(), jem.jni_class());
@@ -1361,7 +1309,7 @@ void JvmtiExport::post_class_prepare(JavaThread *thread, Klass* klass) {
                                             JvmtiTrace::safe_get_thread_name(thread),
                                             klass==NULL? "NULL" : klass->external_name() ));
       JvmtiClassEventMark jem(thread, klass);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventClassPrepare callback = env->callbacks()->ClassPrepare;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(), jem.jni_class());
@@ -1404,7 +1352,7 @@ void JvmtiExport::post_class_unload_internal(const char* name) {
         EVT_TRACE(EXT_EVENT_CLASS_UNLOAD, ("[?] Evt Class Unload sent %s", name));
 
         JvmtiEventMark jem(thread);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiExtensionEvent callback = env->ext_callbacks()->ClassUnload;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), name);
@@ -1440,7 +1388,7 @@ void JvmtiExport::post_thread_start(JavaThread *thread) {
                      JvmtiTrace::safe_get_thread_name(thread) ));
 
         JvmtiThreadEventMark jem(thread);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiEventThreadStart callback = env->callbacks()->ThreadStart;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread());
@@ -1478,7 +1426,7 @@ void JvmtiExport::post_thread_end(JavaThread *thread) {
                      JvmtiTrace::safe_get_thread_name(thread) ));
 
         JvmtiThreadEventMark jem(thread);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiEventThreadEnd callback = env->callbacks()->ThreadEnd;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread());
@@ -1521,7 +1469,7 @@ void JvmtiExport::post_resource_exhausted(jint resource_exhausted_flags, const c
       EVT_TRACE(JVMTI_EVENT_RESOURCE_EXHAUSTED, ("Evt resource exhausted event sent" ));
 
       JvmtiThreadEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventResourceExhausted callback = env->callbacks()->ResourceExhausted;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(),
@@ -1559,7 +1507,7 @@ void JvmtiExport::post_method_entry(JavaThread *thread, Method* method, frame cu
 
         JvmtiEnv *env = ets->get_env();
         JvmtiMethodEventMark jem(thread, mh);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiEventMethodEntry callback = env->callbacks()->MethodEntry;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(), jem.jni_methodID());
@@ -1637,7 +1585,7 @@ void JvmtiExport::post_method_exit_inner(JavaThread* thread,
 
         JvmtiEnv *env = ets->get_env();
         JvmtiMethodEventMark jem(thread, mh);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiEventMethodExit callback = env->callbacks()->MethodExit;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1664,7 +1612,7 @@ void JvmtiExport::post_method_exit_inner(JavaThread* thread,
           // we also need to issue a frame pop event for this frame
           JvmtiEnv *env = ets->get_env();
           JvmtiMethodEventMark jem(thread, mh);
-          JvmtiJavaThreadEventTransition jet(thread);
+          ThreadToNativeFromVM jet(thread);
           jvmtiEventFramePop callback = env->callbacks()->FramePop;
           if (callback != NULL) {
             (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1705,7 +1653,7 @@ void JvmtiExport::post_single_step(JavaThread *thread, Method* method, address l
 
       JvmtiEnv *env = ets->get_env();
       JvmtiLocationEventMark jem(thread, mh, location);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventSingleStep callback = env->callbacks()->SingleStep;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1785,7 +1733,7 @@ void JvmtiExport::post_exception_throw(JavaThread *thread, Method* method, addre
           catch_jmethodID = jem.to_jmethodID(current_mh);
         }
 
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         jvmtiEventException callback = env->callbacks()->Exception;
         if (callback != NULL) {
           (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1857,7 +1805,7 @@ void JvmtiExport::notice_unwind_due_to_exception(JavaThread *thread, Method* met
 
           JvmtiEnv *env = ets->get_env();
           JvmtiExceptionEventMark jem(thread, mh, location, exception_handle);
-          JvmtiJavaThreadEventTransition jet(thread);
+          ThreadToNativeFromVM jet(thread);
           jvmtiEventExceptionCatch callback = env->callbacks()->ExceptionCatch;
           if (callback != NULL) {
             (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -1935,7 +1883,7 @@ void JvmtiExport::post_field_access(JavaThread *thread, Method* method,
       JvmtiLocationEventMark jem(thread, mh, location);
       jclass field_jclass = jem.to_jclass(field_klass);
       jobject field_jobject = jem.to_jobject(object());
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventFieldAccess callback = env->callbacks()->FieldAccess;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -2082,7 +2030,7 @@ void JvmtiExport::post_field_modification(JavaThread *thread, Method* method,
       JvmtiLocationEventMark jem(thread, mh, location);
       jclass field_jclass = jem.to_jclass(field_klass);
       jobject field_jobject = jem.to_jobject(object());
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventFieldModification callback = env->callbacks()->FieldModification;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -2111,7 +2059,7 @@ void JvmtiExport::post_native_method_bind(Method* method, address* function_ptr)
                      JvmtiTrace::safe_get_thread_name(thread) ));
 
         JvmtiMethodEventMark jem(thread, mh);
-        JvmtiJavaThreadEventTransition jet(thread);
+        ThreadToNativeFromVM jet(thread);
         JNIEnv* jni_env = (env->phase() == JVMTI_PHASE_PRIMORDIAL) ? NULL : jem.jni_env();
         jvmtiEventNativeMethodBind callback = env->callbacks()->NativeMethodBind;
         if (callback != NULL) {
@@ -2204,7 +2152,7 @@ void JvmtiExport::post_compiled_method_load(JvmtiEnv* env, nmethod *nm) {
   jvmtiCompiledMethodLoadInlineRecord* inlinerecord = create_inline_record(nm);
   // Pass inlining information through the void pointer
   JvmtiCompiledMethodLoadEventMark jem(thread, nm, inlinerecord);
-  JvmtiJavaThreadEventTransition jet(thread);
+  ThreadToNativeFromVM jet(thread);
   (*callback)(env->jvmti_external(), jem.jni_methodID(),
               jem.code_size(), jem.code_data(), jem.map_length(),
               jem.map(), jem.compile_info());
@@ -2228,7 +2176,7 @@ void JvmtiExport::post_dynamic_code_generated_internal(const char *name, const v
                 ("[%s] dynamic code generated event sent for %s",
                 JvmtiTrace::safe_get_thread_name(thread), name));
       JvmtiEventMark jem(thread);
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jint length = (jint)pointer_delta(code_end, code_begin, sizeof(char));
       jvmtiEventDynamicCodeGenerated callback = env->callbacks()->DynamicCodeGenerated;
       if (callback != NULL) {
@@ -2267,7 +2215,7 @@ void JvmtiExport::post_dynamic_code_generated(JvmtiEnv* env, const char *name,
               ("[%s] dynamic code generated event sent for %s",
                JvmtiTrace::safe_get_thread_name(thread), name));
     JvmtiEventMark jem(thread);
-    JvmtiJavaThreadEventTransition jet(thread);
+    ThreadToNativeFromVM jet(thread);
     jint length = (jint)pointer_delta(code_end, code_begin, sizeof(char));
     jvmtiEventDynamicCodeGenerated callback = env->callbacks()->DynamicCodeGenerated;
     if (callback != NULL) {
@@ -2339,6 +2287,7 @@ void JvmtiExport::record_sampled_internal_object_allocation(oop obj) {
 
 void JvmtiExport::post_garbage_collection_finish() {
   Thread *thread = Thread::current(); // this event is posted from VM-Thread.
+  assert(thread->is_VM_thread(), "Must be");
   EVT_TRIG_TRACE(JVMTI_EVENT_GARBAGE_COLLECTION_FINISH,
                  ("[%s] garbage collection finish event triggered",
                   JvmtiTrace::safe_get_thread_name(thread)));
@@ -2348,7 +2297,7 @@ void JvmtiExport::post_garbage_collection_finish() {
       EVT_TRACE(JVMTI_EVENT_GARBAGE_COLLECTION_FINISH,
                 ("[%s] garbage collection finish event sent",
                  JvmtiTrace::safe_get_thread_name(thread)));
-      JvmtiThreadEventTransition jet(thread);
+//      JvmtiThreadEventTransition jet(thread);
       // JNIEnv is NULL here because this event is posted from VM Thread
       jvmtiEventGarbageCollectionFinish callback = env->callbacks()->GarbageCollectionFinish;
       if (callback != NULL) {
@@ -2360,6 +2309,7 @@ void JvmtiExport::post_garbage_collection_finish() {
 
 void JvmtiExport::post_garbage_collection_start() {
   Thread* thread = Thread::current(); // this event is posted from vm-thread.
+  assert(thread->is_VM_thread(), "Must be");
   EVT_TRIG_TRACE(JVMTI_EVENT_GARBAGE_COLLECTION_START,
                  ("[%s] garbage collection start event triggered",
                   JvmtiTrace::safe_get_thread_name(thread)));
@@ -2369,7 +2319,7 @@ void JvmtiExport::post_garbage_collection_start() {
       EVT_TRACE(JVMTI_EVENT_GARBAGE_COLLECTION_START,
                 ("[%s] garbage collection start event sent",
                  JvmtiTrace::safe_get_thread_name(thread)));
-      JvmtiThreadEventTransition jet(thread);
+//      JvmtiThreadEventTransition jet(thread);
       // JNIEnv is NULL here because this event is posted from VM Thread
       jvmtiEventGarbageCollectionStart callback = env->callbacks()->GarbageCollectionStart;
       if (callback != NULL) {
@@ -2380,7 +2330,7 @@ void JvmtiExport::post_garbage_collection_start() {
 }
 
 void JvmtiExport::post_data_dump() {
-  Thread *thread = Thread::current();
+  JavaThread *thread = JavaThread::current();
   EVT_TRIG_TRACE(JVMTI_EVENT_DATA_DUMP_REQUEST,
                  ("[%s] data dump request event triggered",
                   JvmtiTrace::safe_get_thread_name(thread)));
@@ -2542,7 +2492,7 @@ void JvmtiExport::post_vm_object_alloc(JavaThread *thread, oop object) {
                                          object==NULL? "NULL" : object->klass()->external_name()));
 
       JvmtiObjectAllocEventMark jem(thread, h());
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventVMObjectAlloc callback = env->callbacks()->VMObjectAlloc;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -2577,7 +2527,7 @@ void JvmtiExport::post_sampled_object_alloc(JavaThread *thread, oop object) {
 
       JvmtiEnv *env = ets->get_env();
       JvmtiObjectAllocEventMark jem(thread, h());
-      JvmtiJavaThreadEventTransition jet(thread);
+      ThreadToNativeFromVM jet(thread);
       jvmtiEventSampledObjectAlloc callback = env->callbacks()->SampledObjectAlloc;
       if (callback != NULL) {
         (*callback)(env->jvmti_external(), jem.jni_env(), jem.jni_thread(),
@@ -2685,7 +2635,7 @@ jint JvmtiExport::load_agent_library(const char *agent, const char *absParam,
       {
         extern struct JavaVM_ main_vm;
         JvmtiThreadEventMark jem(THREAD);
-        JvmtiJavaThreadEventTransition jet(THREAD);
+        ThreadToNativeFromVM jet(THREAD);
 
         result = (*on_attach_entry)(&main_vm, (char*)options, NULL);
       }
