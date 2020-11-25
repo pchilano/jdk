@@ -2054,30 +2054,6 @@ void JavaThread::remove_monitor_chunk(MonitorChunk* chunk) {
 // _thread_in_native_trans state (such as from
 // check_special_condition_for_native_trans()).
 void JavaThread::check_and_handle_async_exceptions(bool check_unsafe_error) {
-  if (has_last_Java_frame() && has_async_condition()) {
-    // If we are at a polling page safepoint (not a poll return)
-    // then we must defer async exception because live registers
-    // will be clobbered by the exception path. Poll return is
-    // ok because the call we a returning from already collides
-    // with exception handling registers and so there is no issue.
-    // (The exception handling path kills call result registers but
-    //  this is ok since the exception kills the result anyway).
-
-    if (is_at_poll_safepoint()) {
-      // if the code we are returning to has deoptimized we must defer
-      // the exception otherwise live registers get clobbered on the
-      // exception path before deoptimization is able to retrieve them.
-      //
-      RegisterMap map(this, false);
-      frame caller_fr = last_frame().sender(&map);
-      assert(caller_fr.is_compiled_frame(), "what?");
-      if (caller_fr.is_deoptimized_frame()) {
-        log_info(exceptions)("deferred async exception at compiled safepoint");
-        return;
-      }
-    }
-  }
-
   JavaThread::AsyncRequests condition = clear_special_runtime_exit_condition();
   if (condition == _no_async_condition) {
     // Conditions have changed since has_special_runtime_exit_condition()

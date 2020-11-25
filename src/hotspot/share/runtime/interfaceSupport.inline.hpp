@@ -106,7 +106,7 @@ class TransitionFromUnsafe {
  public:
   static inline void trans(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
     assert(from != _thread_in_native && from != _thread_blocked, "Must be");
-    assert(to != _thread_in_Java || thread->safepoint_state()->is_at_poll_safepoint(), "Should use TransitionFromVMToJava");
+    assert(to != _thread_in_Java || thread->is_at_poll_safepoint(), "Should use TransitionFromVMToJava");
     assert(thread->is_Compiler_thread() || !thread->owns_locks() || to != _thread_in_native, "must release all locks when leaving VM");
     if (from == _thread_in_Java) {
       assert(to == _thread_in_native || to == _thread_in_vm, "Must be");

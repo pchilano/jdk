@@ -952,6 +952,14 @@ void ThreadSafepointState::handle_polling_page_exception() {
     // code will notice the pending async exception, deoptimize and
     // the exception will be delivered. (Polling at a return point
     // is ok though). Sure is a lot of bother for a deprecated feature...
+    // If we are at a polling page safepoint (not a poll return)
+    // then we must defer async exception because live registers
+    // will be clobbered by the exception path. Poll return is
+    // ok because the call we a returning from already collides
+    // with exception handling registers and so there is no issue.
+    // (The exception handling path kills call result registers but
+    //  this is ok since the exception kills the result anyway).
+
     SafepointMechanism::process_if_requested_with_exit_check(self, false /* check asyncs */);
 
     // If we have a pending async exception deoptimize the frame
