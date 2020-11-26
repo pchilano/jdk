@@ -410,6 +410,7 @@ void HandshakeState::process_by_self() {
   assert(!_handshakee->is_terminated(), "should not be a terminated thread");
   assert(_handshakee->thread_state() == _thread_in_vm, "should not be in a blocked state");
   {
+    ttyLocker::break_tty_lock_for_safepoint(os::current_thread_id());
     NoSafepointVerifier nsv;
     process_self_inner();
   }
