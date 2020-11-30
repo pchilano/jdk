@@ -2095,27 +2095,9 @@ void JavaThread::check_and_handle_async_exceptions(bool check_unsafe_error) {
     // We may be at method entry which requires we save the do-not-unlock flag.
     UnlockFlagSaver fs(this);
     condition = _no_async_condition;  // done
-    switch (thread_state()) {
-    case _thread_in_vm: {
-      JavaThread* THREAD = this;
-      Exceptions::throw_unsafe_access_internal_error(THREAD, __FILE__, __LINE__, "a fault occurred in an unsafe memory access operation");
-      return;
-    }
-    case _thread_in_native: {
-      ThreadInVMfromNative tiv(this);
-      JavaThread* THREAD = this;
-      Exceptions::throw_unsafe_access_internal_error(THREAD, __FILE__, __LINE__, "a fault occurred in an unsafe memory access operation");
-      return;
-    }
-    case _thread_in_Java: {
-      ThreadInVMfromJava tiv(this);
-      JavaThread* THREAD = this;
-      Exceptions::throw_unsafe_access_internal_error(THREAD, __FILE__, __LINE__, "a fault occurred in a recent unsafe memory access operation in compiled Java code");
-      return;
-    }
-    default:
-      ShouldNotReachHere();
-    }
+    assert(this->thread_state() == _thread_in_vm, "invariant");
+    Exceptions::throw_unsafe_access_internal_error(this, __FILE__, __LINE__, "a fault occurred in a recent unsafe memory access operation");
+    return;
   }
 
   assert(condition == _no_async_condition || has_pending_exception() ||
