@@ -70,7 +70,7 @@ JavaCallWrapper::JavaCallWrapper(const methodHandle& callee_method, Handle recei
 
   // After this, we are official in JavaCode. This needs to be done before we change any of the thread local
   // info, since we cannot find oops before the new information is set up completely.
-  Transition<_thread_in_vm, _thread_in_Java, true>::trans(thread);
+  Transition<_thread_in_vm, _thread_in_Java>::trans(thread, true);
 
   // Make sure to set the oop's after the thread transition - since we can block there. No one is GC'ing
   // the JavaCallWrapper before the entry frame is on the stack.
@@ -109,7 +109,7 @@ JavaCallWrapper::~JavaCallWrapper() {
   debug_only(_thread->dec_java_call_counter());
 
   // Old thread-local info. has been restored. We are not back in the VM.
-  Transition<_thread_in_Java, _thread_in_vm, false>::trans(_thread);
+  Transition<_thread_in_Java, _thread_in_vm>::trans(_thread);
 
   // State has been restored now make the anchor frame visible for the profiler.
   // Do this after the transition because this allows us to put an assert

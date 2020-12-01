@@ -87,14 +87,14 @@ class InterfaceSupport: AllStatic {
 //    blocked   ||    XXX    |           XXX             |          None            |            XXX            |   XXX    |
 // -------------||-----------|---------------------------|--------------------------|---------------------------|----------|
 
-template<JavaThreadState JTS_FROM, JavaThreadState JTS_TO, bool ASYNC = true>
+template<JavaThreadState JTS_FROM, JavaThreadState JTS_TO>
 class Transition {
 };
 
-template<bool ASYNC>
-class Transition<_thread_in_vm, _thread_in_Java, ASYNC> {
+template<>
+class Transition<_thread_in_vm, _thread_in_Java> {
  public:
-  static inline void trans(JavaThread *thread) {
+  static inline void trans(JavaThread *thread, bool async = false) {
     assert(thread->thread_state() == _thread_in_vm, "coming from wrong thread state");
     if (thread->stack_overflow_state()->stack_yellow_reserved_zone_disabled()) {
       thread->stack_overflow_state()->enable_stack_yellow_reserved_zone();
@@ -103,16 +103,16 @@ class Transition<_thread_in_vm, _thread_in_Java, ASYNC> {
     // This also clears unhandled oops if CheckUnhandledOops is used.
     thread->check_possible_safepoint();
 
-    SafepointMechanism::process_if_requested_with_exit_check(thread, ASYNC);
+    SafepointMechanism::process_if_requested_with_exit_check(thread, async);
     thread->set_thread_state(_thread_in_Java);
   }
 };
 
-template<bool ASYNC>
-class Transition<_thread_in_native, _thread_in_Java, ASYNC> : public Transition<_thread_in_vm, _thread_in_Java, ASYNC> {};
+template<>
+class Transition<_thread_in_native, _thread_in_Java> : public Transition<_thread_in_vm, _thread_in_Java> {};
 
-template<bool ASYNC>
-class Transition<_thread_blocked, _thread_in_vm, ASYNC> {
+template<>
+class Transition<_thread_blocked, _thread_in_vm> {
  public:
   static inline void trans(JavaThread *thread) {
     // static assert
@@ -129,14 +129,14 @@ class Transition<_thread_blocked, _thread_in_vm, ASYNC> {
   }
 };
 
-template<bool ASYNC>
-class Transition<_thread_in_native, _thread_in_vm, ASYNC> : public Transition<_thread_blocked, _thread_in_vm, ASYNC> {};
+template<>
+class Transition<_thread_in_native, _thread_in_vm> : public Transition<_thread_blocked, _thread_in_vm> {};
 
-template<bool ASYNC>
-class Transition<_thread_new, _thread_in_vm, ASYNC> : public Transition<_thread_blocked, _thread_in_vm, ASYNC> {};
+template<>
+class Transition<_thread_new, _thread_in_vm> : public Transition<_thread_blocked, _thread_in_vm> {};
 
-template<JavaThreadState JTS_TO, bool ASYNC>
-class Transition<_thread_in_vm, JTS_TO, ASYNC> {
+template<JavaThreadState JTS_TO>
+class Transition<_thread_in_vm, JTS_TO> {
  public:
   static inline void trans(JavaThread *thread) {
     assert(thread->thread_state() != _thread_in_native && thread->thread_state() != _thread_blocked, "Must be");
@@ -146,8 +146,8 @@ class Transition<_thread_in_vm, JTS_TO, ASYNC> {
   }
 };
 
-template<JavaThreadState JTS_TO, bool ASYNC>
-class Transition<_thread_in_Java, JTS_TO, ASYNC> {
+template<JavaThreadState JTS_TO>
+class Transition<_thread_in_Java, JTS_TO> {
  public:
   static inline void trans(JavaThread *thread) {
     assert(thread->thread_state() != _thread_in_native && thread->thread_state() != _thread_blocked, "Must be");
@@ -158,25 +158,30 @@ class Transition<_thread_in_Java, JTS_TO, ASYNC> {
   }
 };
 
-template<JavaThreadState JTS_FROM, JavaThreadState JTS_TO, bool ASYNC = true>
+template<JavaThreadState JTS_FROM, JavaThreadState JTS_TO, bool ASYNC = false>
 class ThreadStateTransition {
  protected:
   JavaThread* _thread;
  public:
   ThreadStateTransition(JavaThread* thread) : _thread(thread) {
-    Transition<JTS_FROM, JTS_TO, ASYNC>::trans(_thread);
+    Transition<JTS_FROM, JTS_TO>::trans(_thread);
   }
   ~ThreadStateTransition() {
-    Transition<JTS_TO, JTS_FROM, ASYNC>::trans(_thread);
+    if (ASYNC) {
+      assert(JTS_TO == _thread_in_vm && JTS_FROM == _thread_in_Java, "Must be");
+      Transition<_thread_in_vm, _thread_in_Java>::trans(_thread, true);
+    } else {
+      Transition<JTS_TO, JTS_FROM>::trans(_thread);
+    }
   }
 };
 
-typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm     >       ThreadInVMfromJava;
-typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm,    false>  ThreadInVMfromJavaNoAsyncException;
-typedef           ThreadStateTransition<_thread_in_native, _thread_in_vm     >       ThreadInVMfromNative;
-typedef           ThreadStateTransition<_thread_in_vm,     _thread_blocked   >       ThreadBlockInVM;
+typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm,  true> ThreadInVMfromJava;
+typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm   >     ThreadInVMfromJavaNoAsyncException;
+typedef           ThreadStateTransition<_thread_in_native, _thread_in_vm   >     ThreadInVMfromNative;
+typedef           ThreadStateTransition<_thread_in_vm,     _thread_blocked >     ThreadBlockInVM;
 
-class ThreadToNativeFromVM : public ThreadStateTransition<_thread_in_vm, _thread_in_native, false> {
+class ThreadToNativeFromVM : public ThreadStateTransition<_thread_in_vm, _thread_in_native> {
  private:
   HandleMark _hm;
  public:
@@ -200,19 +205,19 @@ class ThreadInVMfromUnknown {
     }
     _thread = jt;
     if (_state == _thread_in_native) {
-      Transition<_thread_in_native, _thread_in_vm, false>::trans(_thread);
+      Transition<_thread_in_native, _thread_in_vm>::trans(_thread);
     } else {
       assert(_state == _thread_in_Java, "Must be");
-      Transition<_thread_in_Java, _thread_in_vm, false>::trans(_thread);
+      Transition<_thread_in_Java, _thread_in_vm>::trans(_thread);
     }
   }
   ~ThreadInVMfromUnknown()  {
     if (_thread) {
       if (_state == _thread_in_native) {
-        Transition<_thread_in_vm, _thread_in_native, false>::trans(_thread);
+        Transition<_thread_in_vm, _thread_in_native>::trans(_thread);
       } else {
         assert(_state == _thread_in_Java, "Must be");
-        Transition<_thread_in_vm, _thread_in_Java, false>::trans(_thread);
+        Transition<_thread_in_vm, _thread_in_Java>::trans(_thread);
       }
     }
   }
@@ -234,19 +239,19 @@ class JvmtiThreadEventTransition {
     }
     _thread = jt;
     if (_state == _thread_in_vm) {
-      Transition<_thread_in_vm, _thread_in_native, false>::trans(_thread);
+      Transition<_thread_in_vm, _thread_in_native>::trans(_thread);
     } else {
       assert(_state == _thread_in_Java , "Must be");
-      Transition<_thread_in_Java, _thread_in_native, false>::trans(_thread);
+      Transition<_thread_in_Java, _thread_in_native>::trans(_thread);
     }
   }
   ~JvmtiThreadEventTransition()  {
     if (_thread) {
       if (_state == _thread_in_native) {
-        Transition<_thread_in_native, _thread_in_vm, false>::trans(_thread);
+        Transition<_thread_in_native, _thread_in_vm>::trans(_thread);
       } else {
         assert(_state == _thread_in_Java, "Must be");
-        Transition<_thread_in_native, _thread_in_Java, false>::trans(_thread);
+        Transition<_thread_in_native, _thread_in_Java>::trans(_thread);
       }
     }
   }

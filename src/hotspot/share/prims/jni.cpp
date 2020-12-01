@@ -3803,7 +3803,7 @@ static jint JNI_CreateJavaVM_inner(JavaVM **vm, void **penv, void *args) {
 #endif
 
     // Since this is not a JVM_ENTRY we have to set the thread state manually before leaving.
-    Transition<_thread_in_vm, _thread_in_native, false>::trans(thread);
+    Transition<_thread_in_vm, _thread_in_native>::trans(thread);
   } else {
     // If create_vm exits because of a pending exception, exit with that
     // exception.  In the future when we figure out how to reclaim memory,
@@ -3898,7 +3898,7 @@ static jint JNICALL jni_DestroyJavaVM_inner(JavaVM *vm) {
 
   // Since this is not a JVM_ENTRY we have to set the thread state manually before entering.
   JavaThread* thread = JavaThread::current();
-  Transition<_thread_in_native, _thread_in_vm, false>::trans(thread);
+  Transition<_thread_in_native, _thread_in_vm>::trans(thread);
   if (Threads::destroy_vm()) {
     // Should not change thread state, VM is gone
     vm_created = 0;
