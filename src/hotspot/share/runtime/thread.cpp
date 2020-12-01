@@ -1701,7 +1701,7 @@ void JavaThread::run() {
 
   // Thread is now sufficiently initialized to be handled by the safepoint code as being
   // in the VM. Change thread state from _thread_new to _thread_in_vm
-  TransitionFromUnsafe::trans(this, _thread_new, _thread_in_vm);
+  Transition<_thread_new, _thread_in_vm>::trans(this);
   // Before a thread is on the threads list it is always safe, so after leaving the
   // _thread_new we should emit a instruction barrier. The distance to modified code
   // from here is probably far enough, but this is consistent and safe.
@@ -2374,7 +2374,7 @@ void JavaThread::verify_not_published() {
 // thread state is _thread_in_native_trans.
 void JavaThread::check_special_condition_for_native_trans(JavaThread *thread) {
   assert(!thread->has_last_Java_frame() || thread->frame_anchor()->walkable(), "Unwalkable stack in native->vm transition");
-  TransitionFromUnsafe::trans(thread, _thread_in_Java, _thread_in_vm);
+  Transition<_thread_in_Java, _thread_in_vm>::trans(thread);
 
   SafepointMechanism::process_if_requested_with_exit_check(thread, false /* check asyncs */);
 
