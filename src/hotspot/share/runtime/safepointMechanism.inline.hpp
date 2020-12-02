@@ -74,6 +74,10 @@ bool SafepointMechanism::should_process(Thread* thread) {
 }
 
 void SafepointMechanism::process_if_requested(JavaThread *thread) {
+  // Check NoSafepointVerifier
+  // This also clears unhandled oops if CheckUnhandledOops is used.
+  thread->check_possible_safepoint();
+  
   if (!local_poll_armed(thread)) {
     return;
   }

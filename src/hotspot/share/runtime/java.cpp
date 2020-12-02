@@ -586,7 +586,7 @@ void vm_perform_shutdown_actions() {
       // We are leaving the VM, set state to native (in case any OS exit
       // handlers call back to the VM)
       JavaThread* jt = thread->as_Java_thread();
-      Transition<_thread_in_vm, _thread_in_native>::trans(jt);
+      ThreadStateTransition::trans_from_unsafe(jt, _thread_in_vm, _thread_in_native);
     }
   }
   notify_vm_shutdown();

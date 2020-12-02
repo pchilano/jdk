@@ -743,6 +743,8 @@ void SafepointSynchronize::block(JavaThread *thread) {
 
 
 void SafepointSynchronize::handle_polling_page_exception(JavaThread *thread) {
+  ThreadStateTransition::trans_from_unsafe(thread, _thread_in_Java, _thread_in_vm);
+
   ThreadSafepointState* state = thread->safepoint_state();
   state->set_at_poll_safepoint(true);
 
@@ -751,6 +753,7 @@ void SafepointSynchronize::handle_polling_page_exception(JavaThread *thread) {
   }
   state->handle_polling_page_exception();
   
+  ThreadStateTransition::trans_from_unsafe(thread, _thread_in_vm, _thread_in_Java);
   state->set_at_poll_safepoint(false);
 }
 
@@ -929,9 +932,7 @@ void ThreadSafepointState::handle_polling_page_exception() {
     StackWatermarkSet::after_unwind(self);
 
     // Process pending operation
-    {
-      ThreadInVMfromJava tivfj(self);
-    }
+    SafepointMechanism::process_if_requested_with_exit_check(self, true /* check_async */);
 
     // restore oop result, if any
     if (return_oop) {
@@ -958,14 +959,13 @@ void ThreadSafepointState::handle_polling_page_exception() {
     // with exception handling registers and so there is no issue.
     // (The exception handling path kills call result registers but
     //  this is ok since the exception kills the result anyway).
+    SafepointMechanism::process_if_requested_with_exit_check(self, false /* check asyncs */);
 
-    {
-      ThreadInVMfromJavaNoAsyncException tivfj(self);
-      // If we have a pending async exception deoptimize the frame
-      // as otherwise we may never deliver it.
-      if (self->has_async_condition()) {
-        Deoptimization::deoptimize_frame(self, caller_fr.id());
-      }
+    // If we have a pending async exception deoptimize the frame
+    // as otherwise we may never deliver it.
+    if (self->has_async_condition()) {
+      NoSafepointVerifier nsv;
+      Deoptimization::deoptimize_frame(self, caller_fr.id());
     }
 
     // If an exception has been installed we must check for a pending deoptimization
