@@ -178,13 +178,16 @@ class ThreadStateTransition {
 
 typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm,  true> ThreadInVMfromJava;
 typedef           ThreadStateTransition<_thread_in_Java,   _thread_in_vm   >     ThreadInVMfromJavaNoAsyncException;
-typedef           ThreadStateTransition<_thread_in_native, _thread_in_vm   >     ThreadInVMfromNative;
+typedef           ThreadStateTransition<_thread_in_native, _thread_in_vm   >     ThreadInVMfromNativeBase;
 typedef           ThreadStateTransition<_thread_in_vm,     _thread_blocked >     ThreadBlockInVM;
 
-/*<<<<<<< HEAD
-class ThreadInVMfromNative : public ThreadStateTransition {
+class ThreadInVMfromNative : public ThreadInVMfromNativeBase {
   ResetNoHandleMark __rnhm;
-=======*/
+ public:
+  ThreadInVMfromNative(JavaThread* thread) : ThreadInVMfromNativeBase(thread) {}
+  ~ThreadInVMfromNative() {};
+};
+
 class ThreadToNativeFromVM : public ThreadStateTransition<_thread_in_vm, _thread_in_native> {
  private:
   HandleMark _hm;
