@@ -114,11 +114,7 @@ public:
     if (thread->is_Java_thread()) {
        _jthread = thread->as_Java_thread();
        _saved_state = _jthread->thread_state();
-       if (_saved_state == _thread_in_Java) {
-         ThreadStateTransition::transition_from_java(_jthread, _thread_in_native);
-       } else {
-         ThreadStateTransition::transition(_jthread, _saved_state, _thread_in_native);
-       }
+       ThreadStateTransition::transition_to_native(_jthread);
     } else {
       _jthread = NULL;
     }

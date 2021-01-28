@@ -3629,7 +3629,7 @@ static jint JNI_CreateJavaVM_inner(JavaVM **vm, void **penv, void *args) {
 #endif
 
     // Since this is not a JVM_ENTRY we have to set the thread state manually before leaving.
-    ThreadStateTransition::transition(thread, _thread_in_vm, _thread_in_native);
+    ThreadStateTransition::transition_to_native(thread);
   } else {
     // If create_vm exits because of a pending exception, exit with that
     // exception.  In the future when we figure out how to reclaim memory,
@@ -3727,7 +3727,7 @@ static jint JNICALL jni_DestroyJavaVM_inner(JavaVM *vm) {
     res = JNI_OK;
     return res;
   } else {
-    ThreadStateTransition::transition(thread, _thread_in_vm, _thread_in_native);
+    ThreadStateTransition::transition_to_native(thread);
     res = JNI_ERR;
     return res;
   }
@@ -3853,7 +3853,7 @@ static jint attach_current_thread(JavaVM *vm, void **penv, void *_args, bool dae
   // using ThreadStateTransition::transition, we do a callback to the safepoint code if
   // needed.
 
-  ThreadStateTransition::transition(thread, _thread_in_vm, _thread_in_native);
+  ThreadStateTransition::transition_to_native(thread);
 
   // Perform any platform dependent FPU setup
   os::setup_fpu();
