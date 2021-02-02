@@ -40,6 +40,39 @@
 #include "runtime/vmThread.hpp"
 #include "utilities/preserveException.hpp"
 
+template<>
+void ThreadStateTransition::transition<_thread_in_vm, _thread_in_Java>(JavaThread *thread) {
+  transition_process(thread, _thread_in_vm, _thread_in_Java, true);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_vm, _thread_in_Java, false>(JavaThread *thread) {
+  transition_process(thread, _thread_in_vm, _thread_in_Java);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_native, _thread_in_Java>(JavaThread *thread) {
+  transition_process(thread, _thread_in_native, _thread_in_Java, true);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_native, _thread_in_Java, false>(JavaThread *thread) {
+  transition_process(thread, _thread_in_native, _thread_in_Java);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_Java, _thread_in_vm>(JavaThread *thread) {
+  transition_no_process(thread, _thread_in_Java, _thread_in_vm);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_Java, _thread_in_native>(JavaThread *thread) {
+  transition_no_process(thread, _thread_in_Java, _thread_in_native);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_vm, _thread_in_native>(JavaThread *thread) {
+  transition_no_process(thread, _thread_in_vm, _thread_in_native);
+}
+template<>
+void ThreadStateTransition::transition<_thread_in_native, _thread_in_vm>(JavaThread *thread) {
+  transition_process(thread, _thread_in_native, _thread_in_vm);
+}
+
 // Implementation of InterfaceSupport
 #ifdef ASSERT
 void ThreadStateTransition::check_transition(JavaThread *thread, JavaThreadState from, JavaThreadState to) {

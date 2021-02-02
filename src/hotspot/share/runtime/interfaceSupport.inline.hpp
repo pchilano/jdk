@@ -97,12 +97,9 @@ class ThreadStateTransition : public StackObj {
     assert(thread != NULL, "must be active Java thread");
   }
 
-  static inline void transition(JavaThread *thread, JavaThreadState from, JavaThreadState to, bool check_async = false) {
-    if (to == _thread_in_Java || from == _thread_in_native) {
-      transition_process(thread, from, to, check_async);
-    } else {
-      transition_no_process(thread, from, to);
-    }
+  template<JavaThreadState JTS_FROM, JavaThreadState JTS_TO, bool ASYNC = true>
+  static inline void transition(JavaThread *thread) {
+    assert(false, "invalid transition");
   }
 
  protected:
@@ -129,6 +126,17 @@ class ThreadStateTransition : public StackObj {
  private:
   static void check_transition(JavaThread *thread, JavaThreadState from, JavaThreadState to)   NOT_DEBUG_RETURN;
 };
+
+// Allowed transitions
+template<> void ThreadStateTransition::transition<_thread_in_vm,     _thread_in_Java>        (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_vm,     _thread_in_Java, false> (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_native, _thread_in_Java>        (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_native, _thread_in_Java, false> (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_native, _thread_in_Java>        (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_Java,   _thread_in_vm>          (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_Java,   _thread_in_native>      (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_vm,     _thread_in_native>      (JavaThread *thread);
+template<> void ThreadStateTransition::transition<_thread_in_native, _thread_in_vm>          (JavaThread *thread);
 
 
 class ThreadInVMForHandshake : public ThreadStateTransition {

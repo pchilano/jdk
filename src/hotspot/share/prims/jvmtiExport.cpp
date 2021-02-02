@@ -118,13 +118,23 @@ public:
         return;
       }
       _jthread = jt;
-      ThreadStateTransition::transition(_jthread, _saved_state, _thread_in_native);
+      if (_saved_state == _thread_in_vm) {
+        ThreadStateTransition::transition<_thread_in_vm, _thread_in_native>(_jthread);
+      } else {
+        assert(_saved_state == _thread_in_Java , "Must be");
+        ThreadStateTransition::transition<_thread_in_Java, _thread_in_native>(_jthread);
+      }
     }
   }
 
   ~JvmtiThreadEventTransition() {
     if (_jthread != NULL) {
-      ThreadStateTransition::transition(_jthread, _thread_in_native, _saved_state);
+      if (_saved_state == _thread_in_vm) {
+        ThreadStateTransition::transition<_thread_in_native, _thread_in_vm>(_jthread);
+      } else {
+        assert(_saved_state == _thread_in_Java, "Must be");
+        ThreadStateTransition::transition<_thread_in_native, _thread_in_Java>(_jthread);
+      }
     }
   }
 };
