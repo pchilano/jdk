@@ -1761,7 +1761,7 @@ void JavaThread::run() {
 
   // Thread is now sufficiently initialized to be handled by the safepoint code as being
   // in the VM. Change thread state from _thread_new to _thread_in_vm
-  this->set_thread_state(_thread_in_vm);
+  ThreadStateTransition::transition(this, _thread_new, _thread_in_vm);
 
   // Before a thread is on the threads list a safepoint can occur, so after leaving the
   // _thread_new state we should emit a instruction barrier. The distance to modified code

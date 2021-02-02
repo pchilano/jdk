@@ -41,8 +41,42 @@
 #include "utilities/preserveException.hpp"
 
 // Implementation of InterfaceSupport
-
 #ifdef ASSERT
+void ThreadStateTransition::check_transition(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
+  assert(thread->thread_state() == from, "coming from wrong state");
+
+  if (to == _thread_blocked || to == _thread_in_native) {
+    // Check NoSafepointVerifier
+    // This also clears unhandled oops if CheckUnhandledOops is used.
+    thread->check_possible_safepoint();
+  }
+
+  bool is_valid_transition = false;
+  bool skip_lock_check = false;  // only skip check on vm<->blocked transitions
+  switch (from) {
+    case _thread_blocked:
+      skip_lock_check = true;
+    case _thread_new:
+      is_valid_transition = to == _thread_in_vm;
+      break;
+    case _thread_in_native:
+      is_valid_transition = to == _thread_in_vm || to == _thread_in_Java;
+      break;
+    case _thread_in_Java:
+      is_valid_transition = to == _thread_in_vm || to == _thread_in_native;
+      break;
+    case _thread_in_vm:
+      skip_lock_check = to == _thread_blocked;
+      is_valid_transition = to == _thread_new || _thread_blocked || to == _thread_in_native || to == _thread_in_Java;
+      break;
+    default:
+      assert(false, "coming from wrong state");
+  }
+
+  //assert(skip_lock_check || !thread->owns_locks(), "should not own any vmlocks");
+  assert(from == _thread_in_Java || !thread->has_last_Java_frame() || thread->frame_anchor()->walkable(), "must be walkable");
+}
+
 VMEntryWrapper::VMEntryWrapper() {
   if (VerifyLastFrame) {
     InterfaceSupport::verify_last_frame();

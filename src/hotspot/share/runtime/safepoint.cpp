@@ -710,11 +710,11 @@ void SafepointSynchronize::block(JavaThread *thread) {
   uint64_t safepoint_id = SafepointSynchronize::safepoint_counter();
   // Check that we have a valid thread_state at this point
   switch(state) {
+    case _thread_in_vm:
     case _thread_in_vm_trans:
     case _thread_in_Java:        // From compiled code
     case _thread_in_native_trans:
     case _thread_blocked_trans:
-    case _thread_new_trans:
 
       // We have no idea where the VMThread is, it might even be at next safepoint.
       // So we can miss this poll, but stop at next.

@@ -412,7 +412,7 @@ int ZeroInterpreter::native_entry(Method* method, intptr_t UNUSED, TRAPS) {
   thread->set_last_Java_frame();
 
   // Change the thread state to _thread_in_native
-  ThreadStateTransition::transition_from_java(thread, _thread_in_native);
+  ThreadStateTransition::transition(thread, _thread_in_Java, _thread_in_native);
 
   // Make the call
   intptr_t result[4 - LogBytesPerWord];

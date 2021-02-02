@@ -88,69 +88,48 @@ class InterfaceSupport: AllStatic {
 
 // Basic class for all thread transition classes.
 class ThreadStateTransition : public StackObj {
+  friend class ThreadInVMfromUnknown;
  protected:
   JavaThread* _thread;
+
  public:
   ThreadStateTransition(JavaThread *thread) : _thread(thread) {
     assert(thread != NULL, "must be active Java thread");
   }
 
-  static inline void transition_to_java(JavaThread *thread, bool check_async = true) {
-    assert(thread->thread_state() == _thread_in_vm || thread->thread_state() == _thread_in_native, "coming from wrong thread state");
-    assert(!thread->owns_locks(), "should not own any vmlocks");
-
-    if (thread->stack_overflow_state()->stack_yellow_reserved_zone_disabled()) {
-      thread->stack_overflow_state()->enable_stack_yellow_reserved_zone();
+  static inline void transition(JavaThread *thread, JavaThreadState from, JavaThreadState to, bool check_async = false) {
+    if (to == _thread_in_Java || from == _thread_in_native) {
+      transition_process(thread, from, to, check_async);
+    } else {
+      transition_no_process(thread, from, to);
     }
-
-    // Change to transition state and ensure it is seen by the VM thread.
-    thread->set_thread_state_fence((JavaThreadState)(thread->thread_state() + 1));
-
-    SafepointMechanism::process_if_requested_with_exit_check(thread, check_async);
-    thread->set_thread_state(_thread_in_Java);
   }
 
-  static inline void transition_from_java(JavaThread *thread, JavaThreadState to) {
-    assert(thread->thread_state() == _thread_in_Java, "coming from wrong thread state");
-    assert(to == _thread_in_vm || to == _thread_in_native, "coming from wrong thread state");
-    assert(!thread->owns_locks(), "should not own any vmlocks");
+ protected:
+  // The following protected methods are used to implement the single-transitions
+  // defined by the transition<from, to> specializations, as well as to implement the higher
+  // level transition wrappers defined below.
+  static inline void transition_process(JavaThread *thread, JavaThreadState from, JavaThreadState to, bool check_async = false) {
+    check_transition(thread, from, to);
 
-    thread->frame_anchor()->make_walkable(thread);
+    // Change to transition state and ensure it is seen by the VM thread.
+    thread->set_thread_state_fence(to);
+    SafepointMechanism::process_if_requested_with_exit_check(thread, check_async);
+  }
+
+  static inline void transition_no_process(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
+    check_transition(thread, from, to);
+
+    if (from == _thread_in_Java) {
+      thread->frame_anchor()->make_walkable(thread);
+    }
     thread->set_thread_state(to);
   }
 
-  static inline void transition_to_native(JavaThread *thread) {
-    assert(thread->thread_state() == _thread_in_vm || thread->thread_state() == _thread_in_Java, "coming from wrong thread state");
-    assert(!thread->owns_locks(), "should not own any vmlocks");
-
-    thread->frame_anchor()->make_walkable(thread);
-    thread->set_thread_state(_thread_in_native);
-  }
-
-  static inline void transition_from_native(JavaThread *thread, JavaThreadState to) {
-    assert(thread->thread_state() == _thread_in_native, "coming from wrong thread state");
-    assert(to == _thread_in_vm || to == _thread_in_Java, "coming from wrong thread state");
-    assert(!thread->owns_locks(), "should not own any vmlocks");
-    assert(!thread->has_last_Java_frame() || thread->frame_anchor()->walkable(), "must be walkable");
-
-    // This is needed only by JvmtiThreadEventTransition, where there is a possible transition
-    // from thread_in_native back to _thread_in_Java
-    if (to == _thread_in_Java) {
-      transition_to_java(thread, false);
-      return;
-    }
-
-    // Change to transition state and ensure it is seen by the VM thread.
-    thread->set_thread_state_fence(_thread_in_native_trans);
-
-    // We never install asynchronous exceptions when coming (back) in
-    // to the runtime from native code because the runtime is not set
-    // up to handle exceptions floating around at arbitrary points.
-    SafepointMechanism::process_if_requested_with_exit_check(thread, false);
-
-    thread->set_thread_state(_thread_in_vm);
-  }
+ private:
+  static void check_transition(JavaThread *thread, JavaThreadState from, JavaThreadState to)   NOT_DEBUG_RETURN;
 };
+
 
 class ThreadInVMForHandshake : public ThreadStateTransition {
   const JavaThreadState _original_state;
@@ -180,10 +159,13 @@ class ThreadInVMfromJava : public ThreadStateTransition {
  public:
   ThreadInVMfromJava(JavaThread* thread, bool check_async = true)
   : ThreadStateTransition(thread), _check_async(check_async) {
-    transition_from_java(_thread, _thread_in_vm);
+    transition_no_process(_thread, _thread_in_Java, _thread_in_vm);
   }
   ~ThreadInVMfromJava()  {
-    transition_to_java(_thread, _check_async);
+    if (_thread->stack_overflow_state()->stack_yellow_reserved_zone_disabled()) {
+      _thread->stack_overflow_state()->enable_stack_yellow_reserved_zone();
+    }
+    transition_process(_thread, _thread_in_vm, _thread_in_Java, _check_async);
   }
 };
 
@@ -197,7 +179,7 @@ class ThreadInVMfromUnknown {
       JavaThread* t2 = t->as_Java_thread();
       if (t2->thread_state() == _thread_in_native) {
         _thread = t2;
-        ThreadStateTransition::transition_from_native(t2, _thread_in_vm);
+        ThreadStateTransition::transition_process(t2, _thread_in_native, _thread_in_vm);
         // Used to have a HandleMarkCleaner but that is dangerous as
         // it could free a handle in our (indirect, nested) caller.
         // We expect any handles will be short lived and figure we
@@ -207,7 +189,7 @@ class ThreadInVMfromUnknown {
   }
   ~ThreadInVMfromUnknown()  {
     if (_thread) {
-      ThreadStateTransition::transition_to_native(_thread);
+      ThreadStateTransition::transition_no_process(_thread, _thread_in_vm, _thread_in_native);
     }
   }
 };
@@ -217,10 +199,10 @@ class ThreadInVMfromNative : public ThreadStateTransition {
   ResetNoHandleMark __rnhm;
  public:
   ThreadInVMfromNative(JavaThread* thread) : ThreadStateTransition(thread) {
-    transition_from_native(thread, _thread_in_vm);
+    transition_process(thread, _thread_in_native, _thread_in_vm);
   }
   ~ThreadInVMfromNative() {
-    transition_to_native(_thread);
+    transition_no_process(_thread, _thread_in_vm, _thread_in_native);
   }
 };
 
@@ -228,11 +210,11 @@ class ThreadInVMfromNative : public ThreadStateTransition {
 class ThreadToNativeFromVM : public ThreadStateTransition {
  public:
   ThreadToNativeFromVM(JavaThread *thread) : ThreadStateTransition(thread) {
-    transition_to_native(thread);
+    transition_no_process(_thread, _thread_in_vm, _thread_in_native);
   }
 
   ~ThreadToNativeFromVM() {
-    transition_from_native(_thread, _thread_in_vm);
+    transition_process(_thread, _thread_in_native, _thread_in_vm);
     assert(!_thread->is_pending_jni_exception_check(), "Pending JNI Exception Check");
     // We don't need to clear_walkable because it will happen automagically when we return to java
   }
@@ -256,14 +238,7 @@ class ThreadBlockInVM : public ThreadStateTransition {
  public:
   ThreadBlockInVM(JavaThread* thread, Mutex** in_flight_mutex_addr = NULL)
   : ThreadStateTransition(thread), _in_flight_mutex_addr(in_flight_mutex_addr) {
-    // Once we are blocked vm expects stack to be walkable
-    thread->frame_anchor()->make_walkable(thread);
-
-    // All unsafe states are treated the same by the VMThread
-    // so we can skip the _thread_in_vm_trans state here. Since
-    // we don't read poll, it's enough to order the stores.
-    OrderAccess::storestore();
-    thread->set_thread_state(_thread_blocked);
+    transition_no_process(_thread, _thread_in_vm, _thread_blocked);
   }
   ~ThreadBlockInVM() {
     // Change to transition state and ensure it is seen by the VM thread.
@@ -275,7 +250,7 @@ class ThreadBlockInVM : public ThreadStateTransition {
       }
       SafepointMechanism::process_if_requested(_thread);
     }
-    
+
     _thread->set_thread_state(_thread_in_vm);
   }
 

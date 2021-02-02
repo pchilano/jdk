@@ -110,19 +110,22 @@ private:
   JavaThread *_jthread;
 
 public:
-  JvmtiThreadEventTransition(Thread *thread) : _rm(), _hm(thread) {
+  JvmtiThreadEventTransition(Thread *thread) : _rm(), _hm(thread) , _jthread(NULL) {
     if (thread->is_Java_thread()) {
-       _jthread = thread->as_Java_thread();
-       _saved_state = _jthread->thread_state();
-       ThreadStateTransition::transition_to_native(_jthread);
-    } else {
-      _jthread = NULL;
+      JavaThread* jt = thread->as_Java_thread();
+      _saved_state = jt->thread_state();
+      if (_saved_state == _thread_in_native) {
+        return;
+      }
+      _jthread = jt;
+      ThreadStateTransition::transition(_jthread, _saved_state, _thread_in_native);
     }
   }
 
   ~JvmtiThreadEventTransition() {
-    if (_jthread != NULL)
-      ThreadStateTransition::transition_from_native(_jthread, _saved_state);
+    if (_jthread != NULL) {
+      ThreadStateTransition::transition(_jthread, _thread_in_native, _saved_state);
+    }
   }
 };
 
