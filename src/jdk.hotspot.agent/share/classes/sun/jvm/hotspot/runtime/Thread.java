@@ -34,8 +34,7 @@ public class Thread extends VMObject {
   private static long tlabFieldOffset;
 
   private static CIntegerField suspendFlagsField;
-  // Thread::SuspendFlags enum constants
-  private static int HAS_ASYNC_EXCEPTION;
+  private static CIntegerField asyncExceptionField;
 
   private static AddressField activeHandlesField;
   private static AddressField currentPendingMonitorField;
@@ -55,8 +54,8 @@ public class Thread extends VMObject {
     Type typeThread = db.lookupType("Thread");
     Type typeJavaThread = db.lookupType("JavaThread");
 
-    suspendFlagsField = typeThread.getCIntegerField("_suspend_flags");
-    HAS_ASYNC_EXCEPTION = db.lookupIntConstant("Thread::_has_async_exception").intValue();
+    suspendFlagsField = typeJavaThread.getCIntegerField("_suspend_flags");
+    asyncExceptionField = typeJavaThread.getCIntegerField("_async_exception_condition");
 
     tlabFieldOffset    = typeThread.getField("_tlab").getOffset();
     activeHandlesField = typeThread.getAddressField("_active_handles");
@@ -74,7 +73,7 @@ public class Thread extends VMObject {
   }
 
   public boolean hasAsyncException() {
-    return (suspendFlags() & HAS_ASYNC_EXCEPTION) != 0;
+    return asyncExceptionField.getValue(addr) != 0;
   }
 
   public ThreadLocalAllocBuffer tlab() {

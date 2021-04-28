@@ -215,20 +215,6 @@ class Thread: public ThreadShadow {
  protected:
   static void* allocate(size_t size, bool throw_excpt, MEMFLAGS flags = mtThread);
 
-  enum SuspendFlags {
-    // NOTE: avoid using the sign-bit as cc generates different test code
-    //       when the sign-bit is used, and sometimes incorrectly - see CR 6398077
-
-    _has_async_exception    = 0x00000001U, // there is a pending async exception
-
-    _trace_flag             = 0x00000004U, // call tracing backend
-    _obj_deopt              = 0x00000008U  // suspend for object reallocation and relocking for JVMTI agent
-  };
-
-  // various suspension related flags - atomically updated
-  // overloaded for async exception checking in check_special_condition_for_native_trans.
-  volatile uint32_t _suspend_flags;
-
  private:
   DEBUG_ONLY(bool _suspendible_thread;)
 
@@ -396,20 +382,6 @@ class Thread: public ThreadShadow {
     os::set_native_thread_name(name);
   }
 
-  bool has_async_exception() const { return (_suspend_flags & _has_async_exception) != 0; }
-
-  inline void set_suspend_flag(SuspendFlags f);
-  inline void clear_suspend_flag(SuspendFlags f);
-
-  inline void set_has_async_exception();
-  inline void clear_has_async_exception();
-
-  inline void set_trace_flag();
-  inline void clear_trace_flag();
-
-  inline void set_obj_deopt_flag();
-  inline void clear_obj_deopt_flag();
-
   // Support for Unhandled Oop detection
   // Add the field for both, fastdebug and debug, builds to keep
   // Thread's fields layout the same.
@@ -439,9 +411,6 @@ class Thread: public ThreadShadow {
   bool skip_gcalot()           { return _skip_gcalot; }
   void set_skip_gcalot(bool v) { _skip_gcalot = v;    }
 #endif
-
-  // Installs a pending exception to be inserted later
-  static void send_async_exception(oop thread_oop, oop java_throwable);
 
   // Resource area
   ResourceArea* resource_area() const            { return _resource_area; }
@@ -477,10 +446,6 @@ class Thread: public ThreadShadow {
   ThreadStatisticalInfo& statistical_info() { return _statistical_info; }
 
   JFR_ONLY(DEFINE_THREAD_LOCAL_ACCESSOR_JFR;)
-
-  bool is_trace_suspend()               { return (_suspend_flags & _trace_flag) != 0; }
-
-  bool is_obj_deopt_suspend()           { return (_suspend_flags & _obj_deopt) != 0; }
 
   // For tracking the Jvmti raw monitor the thread is pending on.
   JvmtiRawMonitor* current_pending_raw_monitor() {
@@ -807,14 +772,69 @@ class JavaThread: public Thread {
                                               // allocated during deoptimization
                                               // and by JNI_MonitorEnter/Exit
 
-  // Async. requests support
-  enum AsyncRequests {
+  // Internal runtime suspend. Currently only used for JFR sampling and object reallocation.
+  // Previously used to implement Java-level suspend()/resume().
+  enum SuspendFlags {
+    // NOTE: avoid using the sign-bit as cc generates different test code
+    //       when the sign-bit is used, and sometimes incorrectly - see CR 6398077
+    _trace_flag             = 0x00000004U, // call tracing backend
+    _obj_deopt              = 0x00000008U  // suspend for object reallocation and relocking for JVMTI agent
+  };
+  volatile uint32_t _suspend_flags;
+
+  inline void set_suspend_flag(SuspendFlags f);
+  inline void clear_suspend_flag(SuspendFlags f);
+
+ public:
+  inline void set_trace_flag();
+  inline void clear_trace_flag();
+  inline void set_obj_deopt_flag();
+  inline void clear_obj_deopt_flag();
+  inline bool is_trace_suspend()     { return (_suspend_flags & _trace_flag) != 0; }
+  inline bool is_obj_deopt_suspend() { return (_suspend_flags & _obj_deopt) != 0; }
+
+ private:
+  // Asynchronous exceptions support
+  enum AsyncExceptionCondition {
     _no_async_condition = 0,
     _async_exception,
     _async_unsafe_access_error
   };
-  AsyncRequests _special_runtime_exit_condition; // Enum indicating pending async. request
-  oop           _pending_async_exception;
+  AsyncExceptionCondition _async_exception_condition;
+  oop                     _pending_async_exception;
+
+ public:
+  void set_pending_unsafe_access_error()  { _async_exception_condition = _async_unsafe_access_error; }
+  void set_pending_async_exception(oop e) {
+    _pending_async_exception = e;
+    _async_exception_condition = _async_exception;
+  }
+  AsyncExceptionCondition clear_async_exception_condition() {
+    AsyncExceptionCondition x = _async_exception_condition;
+    _async_exception_condition = _no_async_condition;
+    return x;
+  }
+  bool has_async_exception_condition(bool check_unsafe_access_error = true) {
+    return check_unsafe_access_error ? _async_exception_condition != _no_async_condition
+                                     : _async_exception_condition == _async_exception;
+  }
+  void check_and_handle_async_exceptions();
+  // Installs a pending exception to be inserted later
+  static void send_async_exception(oop thread_oop, oop java_throwable);
+  void send_thread_stop(oop throwable);
+
+
+  // These methods are used to check and handle internal suspensions and asynchronous exceptions
+  void handle_special_runtime_exit_condition(bool check_asyncs = true);
+  // Return true if JavaThread has an asynchronous condition or
+  // if internal suspension is requested.
+  bool has_special_runtime_exit_condition() {
+    return (_async_exception_condition != _no_async_condition) ||
+           (_suspend_flags & (_obj_deopt JFR_ONLY(| _trace_flag))) != 0;
+  }
+
+  // Check for async exception in addition to safepoint.
+  static void check_special_condition_for_native_trans(JavaThread *thread);
 
   // Safepoint support
  public:                                                        // Expose _thread_state for SafeFetchInt()
@@ -1120,39 +1140,9 @@ class JavaThread: public Thread {
   bool java_resume();  // higher-level resume logic called by the public APIs
   bool is_suspended()     { return _handshake.is_suspended(); }
 
-  // Check for async exception in addition to safepoint.
-  static void check_special_condition_for_native_trans(JavaThread *thread);
-
   // Synchronize with another thread that is deoptimizing objects of the
   // current thread, i.e. reverts optimizations based on escape analysis.
   void wait_for_object_deoptimization();
-
-  // Thread.stop support
-  void send_thread_stop(oop throwable);
-  AsyncRequests clear_special_runtime_exit_condition() {
-    AsyncRequests x = _special_runtime_exit_condition;
-    _special_runtime_exit_condition = _no_async_condition;
-    return x;
-  }
-
-  // Are any async conditions present?
-  bool has_async_condition() { return (_special_runtime_exit_condition != _no_async_condition); }
-
-  void check_and_handle_async_exceptions(bool check_unsafe_error = true);
-
-  // these next two are also used for self-suspension and async exception support
-  void handle_special_runtime_exit_condition(bool check_asyncs = true);
-
-  // Return true if JavaThread has an asynchronous condition or
-  // if external suspension is requested.
-  bool has_special_runtime_exit_condition() {
-    return (_special_runtime_exit_condition != _no_async_condition) ||
-           (_suspend_flags & (_obj_deopt JFR_ONLY(| _trace_flag))) != 0;
-  }
-
-  void set_pending_unsafe_access_error()          { _special_runtime_exit_condition = _async_unsafe_access_error; }
-
-  inline void set_pending_async_exception(oop e);
 
   // Fast-locking support
   bool is_lock_owned(address adr) const;
