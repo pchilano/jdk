@@ -774,7 +774,16 @@ VM_GetReceiver::VM_GetReceiver(
 //
 
 bool JvmtiSuspendControl::suspend(JavaThread *java_thread) {
-  return java_thread->java_suspend();
+  JavaThread* self = JavaThread::current();
+
+  bool ret = java_thread->java_suspend();
+  if (java_thread == self) {
+    // If target is the current thread we need to call this to do the
+    // actual suspend since java_suspend() will only install
+    // the asynchronous handshake.
+    SafepointMechanism::process_if_requested(self);
+  }
+  return ret;
 }
 
 bool JvmtiSuspendControl::resume(JavaThread *java_thread) {
