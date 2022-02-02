@@ -962,34 +962,22 @@ void ThreadSafepointState::handle_polling_page_exception() {
 
     set_at_poll_safepoint(true);
     // Process pending operation
-    // We never deliver an async exception at a polling point as the
-    // compiler may not have an exception handler for it. The polling
-    // code will notice the pending async exception, deoptimize and
-    // the exception will be delivered. (Polling at a return point
-    // is ok though). Sure is a lot of bother for a deprecated feature...
-    SafepointMechanism::process_if_requested_with_exit_check(self, false /* check asyncs */);
+    SafepointMechanism::process_if_requested_with_exit_check(self, true /* check asyncs */);
     set_at_poll_safepoint(false);
 
-    // If we have a pending async exception deoptimize the frame
-    // as otherwise we may never deliver it.
-    if (self->has_async_exception_condition()) {
-      Deoptimization::deoptimize_frame(self, caller_fr.id());
-    }
-
-    // If an exception has been installed we must check for a pending deoptimization
-    // Deoptimize frame if exception has been thrown.
-
+    // If an exception has been installed we must check the top frame wasn't deoptimized.
     if (self->has_pending_exception() ) {
       RegisterMap map(self, true, false);
       frame caller_fr = stub_fr.sender(&map);
       if (caller_fr.is_deoptimized_frame()) {
-        // The exception patch will destroy registers that are still
-        // live and will be needed during deoptimization. Defer the
-        // Async exception should have deferred the exception until the
-        // next safepoint which will be detected when we get into
-        // the interpreter so if we have an exception now things
-        // are messed up.
-
+        // The exception path will destroy registers that are still
+        // live and will be needed during deoptimization, so if we
+        // have an exception now things are messed up. If this happens
+        // at a poll return it is ok because the call we are returning
+        // from already collides with exception handling registers and
+        // so there is no issue (the exception handling path kills call
+        // result registers but this is ok since the exception kills
+        // the result anyway).
         fatal("Exception installed and deoptimization is pending");
       }
     }

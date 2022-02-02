@@ -1588,25 +1588,26 @@ void JavaThread::remove_monitor_chunk(MonitorChunk* chunk) {
 // Asynchronous exceptions support
 //
 void JavaThread::check_and_handle_async_exceptions() {
-  if (has_last_Java_frame() && has_async_exception_condition()) {
-    // If we are at a polling page safepoint (not a poll return)
-    // then we must defer async exception because live registers
-    // will be clobbered by the exception path. Poll return is
-    // ok because the call we a returning from already collides
-    // with exception handling registers and so there is no issue.
-    // (The exception handling path kills call result registers but
-    //  this is ok since the exception kills the result anyway).
-
-    if (is_at_poll_safepoint()) {
-      // if the code we are returning to has deoptimized we must defer
-      // the exception otherwise live registers get clobbered on the
-      // exception path before deoptimization is able to retrieve them.
-      //
-      RegisterMap map(this, false);
-      frame caller_fr = last_frame().sender(&map);
-      assert(caller_fr.is_compiled_frame(), "what?");
-      if (caller_fr.is_deoptimized_frame()) {
-        log_info(exceptions)("deferred async exception at compiled safepoint");
+  if (has_last_Java_frame()) {
+    frame f = last_frame();
+    if (is_at_poll_safepoint() || f.is_runtime_frame()) {
+      // We never deliver an async exception at a polling point as the
+      // compiler may not have an exception handler for it. (Polling at a
+      // return point is ok though). We therefore deoptimize here and
+      // the exception will be detected and delivered once we get into
+      // the interpreter. Same if the top frame is a runtime
+      // stub since some of them (new, monitor_exit..) may also have
+      // an invalid exception handler table.
+      RegisterMap reg_map(this, false);
+      frame compiled_frame = f.sender(&reg_map);
+      if (!StressCompiledExceptionHandlers && compiled_frame.can_be_deoptimized()) {
+        Deoptimization::deoptimize(this, compiled_frame);
+      }
+      if (is_at_poll_safepoint()) {
+        // If we are at a polling page safepoint even after deoptimizing
+        // we must still defer installing the exception because live
+        // registers needed during deoptimization would be clobbered by
+        // the exception path.
         return;
       }
     }
@@ -1700,21 +1701,6 @@ void JavaThread::send_thread_stop(oop java_throwable)  {
     // Actually throw the Throwable against the target Thread - however
     // only if there is no thread death exception installed already.
     if (_pending_async_exception == NULL || !_pending_async_exception->is_a(vmClasses::ThreadDeath_klass())) {
-      // If the topmost frame is a runtime stub, then we are calling into
-      // OptoRuntime from compiled code. Some runtime stubs (new, monitor_exit..)
-      // must deoptimize the caller before continuing, as the compiled  exception handler table
-      // may not be valid
-      if (has_last_Java_frame()) {
-        frame f = last_frame();
-        if (f.is_runtime_frame() || f.is_safepoint_blob_frame()) {
-          RegisterMap reg_map(this, false);
-          frame compiled_frame = f.sender(&reg_map);
-          if (!StressCompiledExceptionHandlers && compiled_frame.can_be_deoptimized()) {
-            Deoptimization::deoptimize(this, compiled_frame);
-          }
-        }
-      }
-
       // Set async. pending exception in thread.
       set_pending_async_exception(java_throwable);
 
