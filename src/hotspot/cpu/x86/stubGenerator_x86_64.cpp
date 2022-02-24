@@ -558,6 +558,29 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
+  // The following routine generates a subroutine to throw an
+  // asynchronous InternalError when an unsafe access gets a fault that
+  // could not be reasonably prevented by the programmer.  (Example:
+  // SIGBUS/OBJERR.)
+  address generate_handler_for_unsafe_access() {
+    StubCodeMark mark(this, "StubRoutines", "handler_for_unsafe_access");
+    address start = __ pc();
+
+    __ push(0);                       // hole for return address-to-be
+    __ pusha();                       // push registers
+    Address next_pc(rsp, RegisterImpl::number_of_registers * BytesPerWord);
+
+    // FIXME: this probably needs alignment logic
+    BLOCK_COMMENT("call handle_unsafe_access");
+    __ call(RuntimeAddress(CAST_FROM_FN_PTR(address, SharedRuntime::handle_unsafe_access)));
+
+    __ movptr(next_pc, rax);          // stuff next address
+    __ popa();
+    __ ret(0);                        // jump to next address
+
+    return start;
+  }
+
   // Support for intptr_t OrderAccess::fence()
   //
   // Arguments :
@@ -7569,6 +7592,8 @@ address generate_avx_ghash_processBlocks() {
 
     // is referenced by megamorphic call
     StubRoutines::_catch_exception_entry = generate_catch_exception();
+
+    StubRoutines::_handler_for_unsafe_access_entry = generate_handler_for_unsafe_access();
 
     // atomic calls
     StubRoutines::_fence_entry                = generate_orderaccess_fence();

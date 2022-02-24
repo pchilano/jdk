@@ -1868,13 +1868,20 @@ methodHandle SharedRuntime::reresolve_call_site(TRAPS) {
   return callee_method;
 }
 
-address SharedRuntime::handle_unsafe_access(JavaThread* thread, address next_pc) {
+address SharedRuntime::handle_unsafe_access() {
   // The faulting unsafe accesses should be changed to throw the error
   // synchronously instead. Meanwhile the faulting instruction will be
   // skipped over (effectively turning it into a no-op) and an
   // asynchronous exception will be raised which the thread will
   // handle at a later point. If the instruction is a load it will
   // return garbage.
+  JavaThread* thread = JavaThread::current();
+
+  address pc = thread->saved_exception_pc();
+  address next_pc = Assembler::locate_next_instruction(pc);
+  if (UnsafeCopyMemory::contains_pc(pc)) {
+    next_pc = UnsafeCopyMemory::page_error_continue_pc(pc);
+  }
 
   // Request an async exception.
   thread->set_pending_unsafe_access_error();

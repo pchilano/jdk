@@ -505,7 +505,7 @@ class SharedRuntime: AllStatic {
   static address handle_wrong_method_abstract(JavaThread* current);
   static address handle_wrong_method_ic_miss(JavaThread* current);
 
-  static address handle_unsafe_access(JavaThread* thread, address next_pc);
+  static address handle_unsafe_access();
 
 #ifdef COMPILER2
   static RuntimeStub* make_native_invoker(address call_target,

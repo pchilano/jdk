@@ -136,6 +136,7 @@ class StubRoutines: AllStatic {
   static address _call_stub_entry;
   static address _forward_exception_entry;
   static address _catch_exception_entry;
+  static address _handler_for_unsafe_access_entry;
   static address _throw_AbstractMethodError_entry;
   static address _throw_IncompatibleClassChangeError_entry;
   static address _throw_NullPointerException_at_call_entry;
@@ -302,6 +303,9 @@ class StubRoutines: AllStatic {
 
   // Exceptions
   static address forward_exception_entry()                 { return _forward_exception_entry; }
+
+  static address handler_for_unsafe_access()               { return _handler_for_unsafe_access_entry; }
+
   // Implicit exceptions
   static address throw_AbstractMethodError_entry()         { return _throw_AbstractMethodError_entry; }
   static address throw_IncompatibleClassChangeError_entry(){ return _throw_IncompatibleClassChangeError_entry; }

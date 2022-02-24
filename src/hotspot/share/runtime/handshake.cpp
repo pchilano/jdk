@@ -24,6 +24,8 @@
 
 #include "precompiled.hpp"
 #include "jvm_io.h"
+#include "classfile/javaClasses.hpp"
+#include "classfile/vmSymbols.hpp"
 #include "logging/log.hpp"
 #include "logging/logStream.hpp"
 #include "memory/resourceArea.hpp"
@@ -314,7 +316,6 @@ void HandshakeOperation::do_handshake(JavaThread* thread) {
 
   // Only actually execute the operation for non terminated threads.
   if (!thread->is_terminated()) {
-    NoSafepointVerifier nsv;
     _handshake_cl->do_thread(thread);
   }
 
@@ -427,6 +428,7 @@ HandshakeState::HandshakeState(JavaThread* target) :
   _queue(),
   _lock(Monitor::nosafepoint, "HandshakeState_lock"),
   _active_handshaker(),
+  _internal_error_op(nullptr),
   _suspended(false),
   _async_suspend_handshake(false)
 {
@@ -500,12 +502,9 @@ bool HandshakeState::process_by_self(bool allow_suspend, bool check_async_except
   // Threads shouldn't block if they are in the middle of printing, but...
   ttyLocker::break_tty_lock_for_safepoint(os::current_thread_id());
 
-  // Handshakes cannot safely safepoint.
-  // The exception to this rule is the asynchronous suspension handshake.
-  // It by-passes the NSV by manually doing the transition.
-  NoSafepointVerifier nsv;
-
   while (has_operation()) {
+    // Handshakes cannot safely safepoint. The exception to this rule are
+    // the asynchronous suspension and internal error handshakes.
     MutexLocker ml(&_lock, Mutex::_no_safepoint_check_flag);
 
     HandshakeOperation* op = get_op_for_self(allow_suspend, check_async_exception);
@@ -525,8 +524,12 @@ bool HandshakeState::process_by_self(bool allow_suspend, bool check_async_except
         // The destructor ~PreserveExceptionMark touches the exception oop so it must not be executed,
         // since a safepoint may be in-progress when returning from the async handshake.
         op->do_handshake(_handshakee); // acquire, op removed after
-        remove_op(op);
         log_handshake_info(((AsyncHandshakeOperation*)op)->start_time(), op->name(), 1, 0, "asynchronous");
+        if (op != _internal_error_op) {
+          remove_op(op);
+        } else {
+          _internal_error_op = nullptr;
+        }
         delete op;
         return true; // Must check for safepoints
       }
@@ -736,4 +739,32 @@ bool HandshakeState::resume() {
   set_suspended(false);
   _lock.notify();
   return true;
+}
+
+void HandshakeState::add_internal_error_op() {
+  if (_internal_error_op != nullptr) {
+    // already have one so just return
+    return;
+  }
+
+  _internal_error_op = new AsyncHandshakeOperation(new InternalErrorHandshake(), _handshakee, 0);
+  assert(_internal_error_op != nullptr, "invariant");
+
+  _queue.push(_internal_error_op);
+  SafepointMechanism::arm_local_poll_release(_handshakee);
+}
+
+void HandshakeState::handle_internal_error() {
+  // Release the handshake lock before constructing the oop to
+  // avoid deadlocks since that can block. Also remove the
+  // operation from the queue now to avoid recursion. These two
+  // combined will allow the JavaThread to execute normally like
+  // if it would be outside a handshake. We will reacquire the
+  // handshake lock at return on ~MutexUnlocker.
+  remove_op(_internal_error_op);
+  MutexUnlocker ml(&_lock, Mutex::_no_safepoint_check_flag);
+
+  Handle h_exception = Exceptions::new_exception(_handshakee, vmSymbols::java_lang_InternalError(), "a fault occurred in an unsafe memory access operation");
+  java_lang_InternalError::set_during_unsafe_access(h_exception());
+  _handshakee->handle_async_exception(h_exception());
 }
