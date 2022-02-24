@@ -33,9 +33,11 @@
 #include "utilities/filterQueue.hpp"
 
 class HandshakeOperation;
+class AsyncHandshakeOperation;
 class JavaThread;
 class SuspendThreadHandshake;
 class ThreadSelfSuspensionHandshake;
+class InternalErrorHandshake;
 class ThreadsListHandle;
 
 // A handshake closure is a callback that is executed for a JavaThread
@@ -88,6 +90,7 @@ class JvmtiRawMonitor;
 class HandshakeState {
   friend ThreadSelfSuspensionHandshake;
   friend SuspendThreadHandshake;
+  friend InternalErrorHandshake;
   friend JavaThread;
   // This a back reference to the JavaThread,
   // the target for all operation in the queue.
@@ -120,8 +123,16 @@ class HandshakeState {
     }
   };
 
+  // Support for unsafe access error
+ private:
+  AsyncHandshakeOperation* _internal_error_op;
+  void handle_internal_error();
+ public:
+  void add_internal_error_op();
+
  public:
   HandshakeState(JavaThread* thread);
+  ~HandshakeState();
 
   void add_operation(HandshakeOperation* op);
 

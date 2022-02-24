@@ -151,7 +151,23 @@ class AsyncExceptionHandshake : public AsyncHandshakeClosure {
   virtual bool should_throw() { return true; }
 };
 
+class InternalErrorHandshake : public AsyncHandshakeClosure {
+ public:
+  InternalErrorHandshake() : AsyncHandshakeClosure("InternalErrorHandshake") {}
+  void do_thread(Thread* thr) {
+    JavaThread* self = JavaThread::cast(thr);
+    assert(self == JavaThread::current(), "must be");
+
+    self->handshake_state()->handle_internal_error();
+  }
+  bool is_async_exception()   { return true; }
+};
+
 inline void JavaThread::set_pending_unsafe_access_error() {
+  if (_async_exception_state != _pending_ThreadDeath) {
+    _async_exception_state = _pending_not_ThreadDeath;
+    handshake_state()->add_internal_error_op();
+  }
 }
 
 inline JavaThreadState JavaThread::thread_state() const    {

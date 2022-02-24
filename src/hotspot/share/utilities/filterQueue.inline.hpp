@@ -30,9 +30,21 @@
 #include "utilities/spinYield.hpp"
 
 template <class E>
-void FilterQueue<E>::push(E data) {
+void FilterQueue<E>::push(E data, bool use_reserved_node) {
   Node* head;
-  Node* insnode = new Node(data);
+  Node* insnode;
+  if (!use_reserved_node) {
+    insnode = new Node(data);
+  } else {
+    // first check if it is already in use
+    Node* curr = load_first();
+    while (curr != NULL && curr != &_reserved_node) {
+      curr = curr->_next;
+    }
+    if (curr == &_reserved_node) return; // already in use
+    _reserved_node._data = data;
+    insnode = &_reserved_node;
+  }
   SpinYield yield(SpinYield::default_spin_limit * 10); // Very unlikely with multiple failed CAS.
   while (true){
     head = load_first();
@@ -40,7 +52,7 @@ void FilterQueue<E>::push(E data) {
     if (Atomic::cmpxchg(&_first, head, insnode) == head) {
       break;
     }
-    yield.wait();
+    if (!use_reserved_node) yield.wait();
   }
 }
 
@@ -93,7 +105,7 @@ E FilterQueue<E>::pop(MATCH_FUNC& match_func) {
       // Working on first
       if (Atomic::cmpxchg(&_first, match, match->_next) == match) {
         E ret = match->_data;
-        delete match;
+        if (match != &_reserved_node) delete match;
         return ret;
       }
       yield.wait();
@@ -106,7 +118,7 @@ E FilterQueue<E>::pop(MATCH_FUNC& match_func) {
     } else {
       match_prev->_next = match->_next;
       E ret = match->_data;
-      delete match;
+      if (match != &_reserved_node) delete match;
       return ret;
     }
   } while (true);

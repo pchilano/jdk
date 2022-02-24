@@ -37,12 +37,14 @@ class FilterQueue {
  private:
   class Node : public CHeapObj<mtInternal> {
    public:
+    Node() : _next(NULL), _data() { }
     Node(const E& e): _next(NULL), _data(e) { }
     Node*    _next;
     E                   _data;
   };
-
   Node* _first;
+  Node _reserved_node;
+
   Node* load_first() {
     return Atomic::load_acquire(&_first);
   }
@@ -50,14 +52,14 @@ class FilterQueue {
   static bool match_all(E d) { return true; }
 
  public:
-  FilterQueue() : _first(NULL) { }
+  FilterQueue() : _first(NULL), _reserved_node() { }
 
   bool is_empty() {
     return load_first() == NULL;
   }
 
   // Adds an item to the queue in a MT safe way, re-entrant.
-  void push(E data);
+  void push(E data, bool use_reserved_node = false);
 
   // Applies the match_func to the items in the queue until match_func returns
   // true and then returns true, or there is no more items and then returns
