@@ -808,18 +808,22 @@ class JavaThread: public Thread {
  private:
   friend class InstallAsyncExceptionHandshake;
   friend class AsyncExceptionHandshake;
+  friend class SafepointMechanism;
 
   enum AsynExceptionState {
     _no_async_exception = 0,
     _pending_ThreadDeath,
-    _pending_not_ThreadDeath
+    _pending_not_ThreadDeath,
+    _pending_unsafe_access_error
   };
   AsynExceptionState _async_exception_state;   // Cache to avoid traversing handshake queue
 
   void install_async_exception(AsyncExceptionHandshake* aec = NULL);
   void handle_async_exception(oop java_throwable);
+  void handle_internal_error();
  public:
   bool has_async_exception_condition() { return _async_exception_state != _no_async_exception; }
+  bool has_pending_unsafe_access_error() { return _async_exception_state == _pending_unsafe_access_error; }
   inline void set_pending_unsafe_access_error();
   static void send_async_exception(JavaThread* jt, oop java_throwable);
   static void send_async_exception(JavaThread* jt, AsyncExceptionHandshake* aec);

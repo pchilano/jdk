@@ -35,6 +35,7 @@
 #include "runtime/nonJavaThread.hpp"
 #include "runtime/orderAccess.hpp"
 #include "runtime/safepoint.hpp"
+#include "runtime/safepointMechanism.inline.hpp"
 
 #if defined(__APPLE__) && defined(AARCH64)
 #include "runtime/os.hpp"
@@ -152,6 +153,17 @@ class AsyncExceptionHandshake : public AsyncHandshakeClosure {
 };
 
 inline void JavaThread::set_pending_unsafe_access_error() {
+  if (_async_exception_state == _pending_ThreadDeath) {
+    // Don't bother if there is already a pending ThreadDeath
+    // async exception.
+    return;
+  }
+  _async_exception_state = _pending_unsafe_access_error;
+  // We cannot allocate memory inside a signal handler so we just
+  // arm the poll. On the next call to SafepointMechanism::process()
+  // that allows checking for async exceptions, the JavaThread will
+  // identify and handle the pending condition.
+  SafepointMechanism::arm_local_poll(this);
 }
 
 inline JavaThreadState JavaThread::thread_state() const    {

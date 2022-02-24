@@ -1693,6 +1693,17 @@ void JavaThread::send_async_exception(JavaThread* target, AsyncExceptionHandshak
   Handshake::execute(&iaeh, target);
 }
 
+void JavaThread::handle_internal_error() {
+  assert(this == Thread::current(), "can only send internal error on self");
+  // Clear state first to avoid recursive calls to this method while creating
+  // the exception below since that can block
+  _async_exception_state = _no_async_exception;
+
+  Handle h_exception = Exceptions::new_exception(this, vmSymbols::java_lang_InternalError(), "a fault occurred in an unsafe memory access operation");
+  java_lang_InternalError::set_during_unsafe_access(h_exception());
+  handle_async_exception(h_exception());
+}
+
 
 // External suspension mechanism.
 //

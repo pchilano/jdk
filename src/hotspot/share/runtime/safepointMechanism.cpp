@@ -95,6 +95,7 @@ void SafepointMechanism::update_poll_values(JavaThread* thread) {
   assert(thread->thread_state() != _thread_in_native, "Must not be");
   for (;;) {
     bool armed = global_poll() || thread->handshake_state()->has_operation();
+                 thread->has_pending_unsafe_access_error();
     uintptr_t stack_watermark = StackWatermarkSet::lowest_watermark(thread);
     uintptr_t poll_page = armed ? _poll_page_armed_value
                                 : _poll_page_disarmed_value;
@@ -136,6 +137,13 @@ void SafepointMechanism::process(JavaThread *thread, bool allow_suspend, bool ch
     StackWatermarkSet::on_safepoint(thread);
 
     need_rechecking = thread->handshake_state()->has_operation() && thread->handshake_state()->process_by_self(allow_suspend, check_async_exception);
+
+    // Create and throw InternalError here if pending. If we were blocked while processing
+    // a handshake above there could be an ongoing safepoint operation so do the recheck first.
+    if (check_async_exception && thread->has_pending_unsafe_access_error() && !need_rechecking ) {
+      thread->handle_internal_error();
+      need_rechecking = true;
+    }
   } while (need_rechecking);
 
   update_poll_values(thread);
