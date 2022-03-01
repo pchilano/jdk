@@ -152,6 +152,10 @@ class AsyncExceptionHandshake : public AsyncHandshakeClosure {
 };
 
 inline void JavaThread::set_pending_unsafe_access_error() {
+  if (_async_exception_state != _pending_ThreadDeath) {
+    _async_exception_state = _pending_not_ThreadDeath;
+    handshake_state()->add_unsafe_access_error_op();
+  }
 }
 
 inline JavaThreadState JavaThread::thread_state() const    {

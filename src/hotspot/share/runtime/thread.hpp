@@ -808,6 +808,7 @@ class JavaThread: public Thread {
  private:
   friend class InstallAsyncExceptionHandshake;
   friend class AsyncExceptionHandshake;
+  friend class HandshakeState;
 
   enum AsynExceptionState {
     _no_async_exception = 0,
