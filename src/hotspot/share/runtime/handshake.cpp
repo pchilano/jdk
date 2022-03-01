@@ -523,14 +523,13 @@ bool HandshakeState::process_by_self(bool allow_suspend, bool check_async_except
         // An asynchronous handshake may put the JavaThread in blocked state (safepoint safe).
         // The destructor ~PreserveExceptionMark touches the exception oop so it must not be executed,
         // since a safepoint may be in-progress when returning from the async handshake.
+        bool is_unsafe_access_error = op == _unsafe_access_error_op;
         op->do_handshake(_handshakee); // acquire, op removed after
         log_handshake_info(((AsyncHandshakeOperation*)op)->start_time(), op->name(), 1, 0, "asynchronous");
-        if (op != _unsafe_access_error_op) {
+        if (!is_unsafe_access_error) {
           remove_op(op);
-        } else {
-          _unsafe_access_error_op = nullptr;
+          delete op;
         }
-        delete op;
         return true; // Must check for safepoints
       }
     } else {
@@ -763,6 +762,17 @@ void HandshakeState::add_unsafe_access_error_op() {
 }
 
 void HandshakeState::handle_unsafe_access_error() {
+  if (is_suspended()) {
+    // A suspend handshake was added to the queue after the
+    // unsafe access error. Since the suspender has already
+    // considered this JT as suspended and assumes it won't go
+    // back to Java until resumed we cannot create the exception
+    // object yet. Move the operation to the end of the queue
+    // and try again in the next attempt.
+    remove_op(_unsafe_access_error_op);
+    _queue.push(_unsafe_access_error_op);
+    return;
+  }
   // Release the handshake lock before constructing the oop to
   // avoid deadlocks since that can block. Also remove the
   // operation from the queue now to avoid recursion. These two
@@ -774,4 +784,6 @@ void HandshakeState::handle_unsafe_access_error() {
   Handle h_exception = Exceptions::new_exception(_handshakee, vmSymbols::java_lang_InternalError(), "a fault occurred in an unsafe memory access operation");
   java_lang_InternalError::set_during_unsafe_access(h_exception());
   _handshakee->handle_async_exception(h_exception());
+  delete _unsafe_access_error_op;
+  _unsafe_access_error_op = nullptr;
 }
