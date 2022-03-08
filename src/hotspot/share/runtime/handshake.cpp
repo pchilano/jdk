@@ -428,7 +428,6 @@ HandshakeState::HandshakeState(JavaThread* target) :
   _queue(),
   _lock(Monitor::nosafepoint, "HandshakeState_lock"),
   _active_handshaker(),
-  _unsafe_access_error_op(nullptr),
   _suspended(false),
   _async_suspend_handshake(false)
 {
@@ -523,13 +522,10 @@ bool HandshakeState::process_by_self(bool allow_suspend, bool check_async_except
         // An asynchronous handshake may put the JavaThread in blocked state (safepoint safe).
         // The destructor ~PreserveExceptionMark touches the exception oop so it must not be executed,
         // since a safepoint may be in-progress when returning from the async handshake.
-        bool is_unsafe_access_error = op == _unsafe_access_error_op;
-        op->do_handshake(_handshakee); // acquire, op removed after
+        remove_op(op);
+        op->do_handshake(_handshakee);
         log_handshake_info(((AsyncHandshakeOperation*)op)->start_time(), op->name(), 1, 0, "asynchronous");
-        if (!is_unsafe_access_error) {
-          remove_op(op);
-          delete op;
-        }
+        delete op;
         return true; // Must check for safepoints
       }
     } else {
@@ -740,50 +736,25 @@ bool HandshakeState::resume() {
   return true;
 }
 
-class UnsafeAccessErrorHandshake : public AsyncHandshakeClosure {
- public:
-  UnsafeAccessErrorHandshake() : AsyncHandshakeClosure("UnsafeAccessErrorHandshake") {}
-  void do_thread(Thread* thr) {
-    JavaThread* self = JavaThread::cast(thr);
-    assert(self == JavaThread::current(), "must be");
-
-    self->handshake_state()->handle_unsafe_access_error();
-  }
-  bool is_async_exception()   { return true; }
-};
-
-void HandshakeState::add_unsafe_access_error_op() {
-  if (_unsafe_access_error_op != nullptr) {
-    return;  // we already have one so just return;
-  }
-  _unsafe_access_error_op = new AsyncHandshakeOperation(new UnsafeAccessErrorHandshake(), _handshakee, 0);
-  _queue.push(_unsafe_access_error_op);
-  SafepointMechanism::arm_local_poll_release(_handshakee);
-}
-
 void HandshakeState::handle_unsafe_access_error() {
   if (is_suspended()) {
     // A suspend handshake was added to the queue after the
     // unsafe access error. Since the suspender has already
     // considered this JT as suspended and assumes it won't go
     // back to Java until resumed we cannot create the exception
-    // object yet. Move the operation to the end of the queue
-    // and try again in the next attempt.
-    remove_op(_unsafe_access_error_op);
-    _queue.push(_unsafe_access_error_op);
+    // object yet. Add a new unsafe accesss error operation to
+    // the end of the queue and try again in the next attempt.
+    Handshake::execute(new UnsafeAccessErrorHandshake(), _handshakee);
+    log_error(handshake)("JavaThread " INTPTR_FORMAT " skipping unsafe accesss processing due to suspend.", p2i(_handshakee));
     return;
   }
   // Release the handshake lock before constructing the oop to
-  // avoid deadlocks since that can block. Also remove the
-  // operation from the queue now to avoid recursion. These two
-  // combined will allow the JavaThread to execute normally like
-  // if it would be outside a handshake. We will reacquire the
-  // handshake lock at return on ~MutexUnlocker.
-  remove_op(_unsafe_access_error_op);
+  // avoid deadlocks since that can block. This will allow the
+  // JavaThread to execute normally like if it would be outside
+  // a handshake. We will reacquire the handshake lock at return
+  // on ~MutexUnlocker.
   MutexUnlocker ml(&_lock, Mutex::_no_safepoint_check_flag);
   Handle h_exception = Exceptions::new_exception(_handshakee, vmSymbols::java_lang_InternalError(), "a fault occurred in an unsafe memory access operation");
   java_lang_InternalError::set_during_unsafe_access(h_exception());
   _handshakee->handle_async_exception(h_exception());
-  delete _unsafe_access_error_op;
-  _unsafe_access_error_op = nullptr;
 }

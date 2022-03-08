@@ -125,10 +125,7 @@ class HandshakeState {
 
   // Support for unsafe access error
  private:
-  AsyncHandshakeOperation* _unsafe_access_error_op;
   void handle_unsafe_access_error();
- public:
-  void add_unsafe_access_error_op();
 
  public:
   HandshakeState(JavaThread* thread);
