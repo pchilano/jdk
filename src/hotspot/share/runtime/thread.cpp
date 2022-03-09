@@ -1014,7 +1014,6 @@ JavaThread::JavaThread() :
   _monitor_chunks(nullptr),
 
   _suspend_flags(0),
-  _async_exception_state(_no_async_exception),
 
   _thread_state(_thread_new),
   _saved_exception_pc(nullptr),
@@ -1629,11 +1628,6 @@ void JavaThread::handle_async_exception(oop java_throwable) {
       ls.print_cr(" of type: %s", java_throwable->klass()->external_name());
     }
   }
-
-  // There could be more async exception handshakes in the queue but they will
-  // all be processed in this same call to SafepointMechanism::process() so there
-  // will not be any calls to has_async_exception_condition() in the middle.
-  _async_exception_state = _no_async_exception;
 }
 
 void JavaThread::install_async_exception(AsyncExceptionHandshake* aeh) {
@@ -1647,7 +1641,7 @@ void JavaThread::install_async_exception(AsyncExceptionHandshake* aeh) {
   // Don't install a new pending async exception if there is already
   // a pending ThreadDeath one. Just interrupt thread from potential
   // wait()/sleep()/park() and return.
-  if (_async_exception_state == _pending_ThreadDeath) {
+  if (has_async_exception_condition(true /* ThreadDeath_only */)) {
     java_lang_Thread::set_interrupted(threadObj(), true);
     this->interrupt();
     delete aeh;
@@ -1655,7 +1649,6 @@ void JavaThread::install_async_exception(AsyncExceptionHandshake* aeh) {
   }
 
   oop exception = aeh->exception();
-  _async_exception_state = exception->is_a(vmClasses::ThreadDeath_klass()) ? _pending_ThreadDeath : _pending_not_ThreadDeath;
   Handshake::execute(aeh, this);  // Install asynchronous handshake
 
   ResourceMark rm;

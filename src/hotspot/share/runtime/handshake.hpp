@@ -54,6 +54,7 @@ class HandshakeClosure : public ThreadClosure, public CHeapObj<mtThread> {
   virtual bool is_async()                          { return false; }
   virtual bool is_suspend()                        { return false; }
   virtual bool is_async_exception()                { return false; }
+  virtual bool is_ThreadDeath()                    { return false; }
   virtual void do_thread(Thread* thread) = 0;
 };
 
@@ -134,6 +135,7 @@ class HandshakeState {
 
   bool has_operation() { return !_queue.is_empty(); }
   bool has_operation(bool allow_suspend, bool check_async_exception);
+  bool has_async_exception_operation(bool ThreadDeath_only);
 
   bool operation_pending(HandshakeOperation* op);
 

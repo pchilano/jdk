@@ -28,8 +28,10 @@
 
 #include "runtime/thread.hpp"
 
+#include "classfile/vmClasses.hpp"
 #include "gc/shared/tlab_globals.hpp"
 #include "memory/universe.hpp"
+#include "oops/instanceKlass.hpp"
 #include "oops/oopHandle.inline.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/nonJavaThread.hpp"
@@ -126,9 +128,12 @@ inline void JavaThread::clear_obj_deopt_flag() {
 
 class AsyncExceptionHandshake : public AsyncHandshakeClosure {
   OopHandle _exception;
+  bool _is_ThreadDeath;
  public:
   AsyncExceptionHandshake(OopHandle& o, const char* name = "AsyncExceptionHandshake")
-  : AsyncHandshakeClosure(name), _exception(o) {}
+  : AsyncHandshakeClosure(name), _exception(o) {
+    _is_ThreadDeath = exception()->is_a(vmClasses::ThreadDeath_klass());
+  }
 
   ~AsyncExceptionHandshake() {
     assert(!_exception.is_empty(), "invariant");
@@ -148,6 +153,7 @@ class AsyncExceptionHandshake : public AsyncHandshakeClosure {
     return _exception.resolve();
   }
   bool is_async_exception()   { return true; }
+  bool is_ThreadDeath()       { return _is_ThreadDeath; }
   virtual bool should_throw() { return true; }
 };
 
@@ -164,10 +170,13 @@ class UnsafeAccessErrorHandshake : public AsyncHandshakeClosure {
 };
 
 inline void JavaThread::set_pending_unsafe_access_error() {
-  if (_async_exception_state == _no_async_exception) {
-    _async_exception_state = _pending_not_ThreadDeath;
+  if (!has_async_exception_condition()) {
     Handshake::execute(new UnsafeAccessErrorHandshake(), this);
   }
+}
+
+inline bool JavaThread::has_async_exception_condition(bool ThreadDeath_only) {
+  return handshake_state()->has_async_exception_operation(ThreadDeath_only);
 }
 
 inline JavaThreadState JavaThread::thread_state() const    {

@@ -81,6 +81,7 @@ class HandshakeOperation : public CHeapObj<mtThread> {
   bool is_async()                  { return _handshake_cl->is_async(); }
   bool is_suspend()                { return _handshake_cl->is_suspend(); }
   bool is_async_exception()        { return _handshake_cl->is_async_exception(); }
+  bool is_ThreadDeath()            { return _handshake_cl->is_ThreadDeath(); }
 };
 
 class AsyncHandshakeOperation : public HandshakeOperation {
@@ -452,6 +453,12 @@ static bool non_self_queue_filter(HandshakeOperation* op) {
 static bool no_async_exception_filter(HandshakeOperation* op) {
   return !op->is_async_exception();
 }
+static bool async_exception_filter(HandshakeOperation* op) {
+  return op->is_async_exception();
+}
+static bool is_ThreadDeath_filter(HandshakeOperation* op) {
+  return op->is_ThreadDeath();
+}
 static bool no_suspend_no_async_exception_filter(HandshakeOperation* op) {
   return !op->is_suspend() && !op->is_async_exception();
 }
@@ -472,6 +479,16 @@ HandshakeOperation* HandshakeState::get_op_for_self(bool allow_suspend, bool che
 bool HandshakeState::has_operation(bool allow_suspend, bool check_async_exception) {
   MutexLocker ml(&_lock, Mutex::_no_safepoint_check_flag);
   return get_op_for_self(allow_suspend, check_async_exception) != NULL;
+}
+
+bool HandshakeState::has_async_exception_operation(bool ThreadDeath_only) {
+  if (!has_operation()) return false;
+  MutexLocker ml(_lock.owned_by_self() ? NULL :  &_lock, Mutex::_no_safepoint_check_flag);
+  if (!ThreadDeath_only) {
+    return _queue.peek(async_exception_filter) != NULL;
+  } else {
+    return _queue.peek(is_ThreadDeath_filter) != NULL;
+  }
 }
 
 bool HandshakeState::have_non_self_executable_operation() {
