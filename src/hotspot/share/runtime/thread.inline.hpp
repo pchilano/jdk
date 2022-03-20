@@ -28,7 +28,11 @@
 
 #include "runtime/thread.hpp"
 
+#include "classfile/vmClasses.hpp"
 #include "gc/shared/tlab_globals.hpp"
+#include "memory/universe.hpp"
+#include "oops/instanceKlass.hpp"
+#include "oops/oopHandle.inline.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/nonJavaThread.hpp"
 #include "runtime/orderAccess.hpp"
@@ -122,20 +126,42 @@ inline void JavaThread::clear_obj_deopt_flag() {
   clear_suspend_flag(_obj_deopt);
 }
 
-inline bool JavaThread::clear_async_exception_condition() {
-  bool ret = has_async_exception_condition();
-  clear_suspend_flag(_has_async_exception);
-  return ret;
-}
+class AsyncExceptionHandshake : public AsyncHandshakeClosure {
+  OopHandle _exception;
+  bool _is_ThreadDeath;
+ public:
+  AsyncExceptionHandshake(OopHandle& o, const char* name = "AsyncExceptionHandshake")
+  : AsyncHandshakeClosure(name), _exception(o) {
+    _is_ThreadDeath = exception()->is_a(vmClasses::ThreadDeath_klass());
+  }
 
-inline void JavaThread::set_pending_async_exception(oop e) {
-  _pending_async_exception = e;
-  set_suspend_flag(_has_async_exception);
-}
+  ~AsyncExceptionHandshake() {
+    assert(!_exception.is_empty(), "invariant");
+    _exception.release(Universe::vm_global());
+  }
+
+  void do_thread(Thread* thr) {
+    JavaThread* self = JavaThread::cast(thr);
+    assert(self == JavaThread::current(), "must be");
+
+    if (should_throw()) {
+      self->handle_async_exception(exception());
+    }
+  }
+  oop exception() {
+    assert(!_exception.is_empty(), "invariant");
+    return _exception.resolve();
+  }
+  bool is_async_exception()   { return true; }
+  bool is_ThreadDeath()       { return _is_ThreadDeath; }
+  virtual bool should_throw() { return true; }
+};
 
 inline void JavaThread::set_pending_unsafe_access_error() {
-  set_suspend_flag(_has_async_exception);
-  DEBUG_ONLY(_is_unsafe_access_error = true);
+}
+
+inline bool JavaThread::has_async_exception_condition(bool ThreadDeath_only) {
+  return handshake_state()->has_async_exception_operation(ThreadDeath_only);
 }
 
 inline JavaThreadState JavaThread::thread_state() const    {
