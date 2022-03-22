@@ -1369,22 +1369,22 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
       }
     }
 
-    // Call Thread.exit(). We try 3 times in case we got another Thread.stop during
-    // the execution of the method. If that is not enough, then we don't really care. Thread.stop
-    // is deprecated anyhow.
     if (!is_Compiler_thread()) {
-      int count = 3;
-      while (java_lang_Thread::threadGroup(threadObj()) != NULL && (count-- > 0)) {
-        EXCEPTION_MARK;
-        JavaValue result(T_VOID);
-        Klass* thread_klass = vmClasses::Thread_klass();
-        JavaCalls::call_virtual(&result,
-                                threadObj, thread_klass,
-                                vmSymbols::exit_method_name(),
-                                vmSymbols::void_method_signature(),
-                                THREAD);
-        CLEAR_PENDING_EXCEPTION;
-      }
+      // We have finished executing user-defined Java code and now have to do the
+      // implementation specific clean-up by calling Thread.exit(). We prevent any
+      // further asynchronous exceptions from being delivered to ensure the clean-up
+      // is not corrupted.
+      NoAsyncExceptionDeliveryMark _no_async(this);
+
+      EXCEPTION_MARK;
+      JavaValue result(T_VOID);
+      Klass* thread_klass = vmClasses::Thread_klass();
+      JavaCalls::call_virtual(&result,
+                              threadObj, thread_klass,
+                              vmSymbols::exit_method_name(),
+                              vmSymbols::void_method_signature(),
+                              THREAD);
+      CLEAR_PENDING_EXCEPTION;
     }
     // notify JVMTI
     if (JvmtiExport::should_post_thread_life()) {

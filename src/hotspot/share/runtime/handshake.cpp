@@ -429,6 +429,7 @@ HandshakeState::HandshakeState(JavaThread* target) :
   _queue(),
   _lock(Monitor::nosafepoint, "HandshakeState_lock"),
   _active_handshaker(),
+  _async_exception_blocked(false),
   _suspended(false),
   _async_suspend_handshake(false)
 {
@@ -469,7 +470,7 @@ HandshakeOperation* HandshakeState::get_op_for_self(bool allow_suspend, bool che
   assert(allow_suspend || !check_async_exception, "invalid case");
   if (!allow_suspend) {
     return _queue.peek(no_suspend_no_async_exception_filter);
-  } else if (check_async_exception) {
+  } else if (check_async_exception && !_async_exception_blocked) {
     return _queue.peek();
   } else {
     return _queue.peek(no_async_exception_filter);

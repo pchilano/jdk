@@ -179,6 +179,13 @@ inline bool JavaThread::has_async_exception_condition(bool ThreadDeath_only) {
   return handshake_state()->has_async_exception_operation(ThreadDeath_only);
 }
 
+inline JavaThread::NoAsyncExceptionDeliveryMark::NoAsyncExceptionDeliveryMark(JavaThread *t) : _target(t) {
+  _target->handshake_state()->set_async_exception_blocked(true);
+}
+inline JavaThread::NoAsyncExceptionDeliveryMark::~NoAsyncExceptionDeliveryMark() {
+  _target->handshake_state()->set_async_exception_blocked(false);
+}
+
 inline JavaThreadState JavaThread::thread_state() const    {
 #if defined(PPC64) || defined (AARCH64)
   // Use membars when accessing volatile _thread_state. See

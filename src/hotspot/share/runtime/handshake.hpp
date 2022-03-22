@@ -124,9 +124,12 @@ class HandshakeState {
     }
   };
 
-  // Support for unsafe access error
+  // Support for async exceptions
  private:
+  bool _async_exception_blocked;
+
   void handle_unsafe_access_error();
+  void set_async_exception_blocked(bool b) { _async_exception_blocked = b; }
 
  public:
   HandshakeState(JavaThread* thread);

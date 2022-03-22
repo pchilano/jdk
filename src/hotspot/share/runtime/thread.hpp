@@ -818,6 +818,13 @@ class JavaThread: public Thread {
   static void send_async_exception(JavaThread* jt, oop java_throwable);
   static void send_async_exception(JavaThread* jt, AsyncExceptionHandshake* aec);
 
+  class NoAsyncExceptionDeliveryMark : public StackObj {
+    friend JavaThread;
+    JavaThread *_target;
+    inline NoAsyncExceptionDeliveryMark(JavaThread *t);
+    inline ~NoAsyncExceptionDeliveryMark();
+  };
+
   // Safepoint support
  public:                                                        // Expose _thread_state for SafeFetchInt()
   volatile JavaThreadState _thread_state;
