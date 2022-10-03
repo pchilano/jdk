@@ -2983,6 +2983,18 @@ class StubGenerator: public StubCodeGenerator {
     return generate_cont_thaw("Cont thaw return barrier exception", Continuation::thaw_return_barrier_exception);
   }
 
+  address generate_cont_preempt_stub() {
+    if (!Continuations::enabled()) return nullptr;
+    Unimplemented();
+    return nullptr;
+  }
+
+  address generate_cont_preempt_rerun_interpreter_adapter() {
+    if (!Continuations::enabled()) return nullptr;
+    Unimplemented();
+    return nullptr;
+  }
+
 #if INCLUDE_JFR
 
   // For c2: c_rarg0 is junk, call to runtime to write a checkpoint.
@@ -3078,6 +3090,8 @@ class StubGenerator: public StubCodeGenerator {
     StubRoutines::_cont_doYield_stub = generate_cont_doYield();
     StubRoutines::_cont_doYield      = StubRoutines::_cont_doYield_stub == nullptr ? nullptr
                                                                                    : StubRoutines::_cont_doYield_stub->entry_point();
+    StubRoutines::_cont_preempt_stub = generate_cont_preempt_stub();
+    StubRoutines::_cont_preempt_rerun_interpreter_adapter = generate_cont_preempt_rerun_interpreter_adapter();
 
     JFR_ONLY(StubRoutines::_jfr_write_checkpoint_stub = generate_jfr_write_checkpoint();)
     JFR_ONLY(StubRoutines::_jfr_write_checkpoint = StubRoutines::_jfr_write_checkpoint_stub->entry_point();)

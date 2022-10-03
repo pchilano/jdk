@@ -68,21 +68,24 @@ public class Continuation {
 
     /** Preemption attempt result */
     public enum PreemptStatus {
-        /** Success */                                                      SUCCESS(null),
-        /** Permanent failure */                                            PERM_FAIL_UNSUPPORTED(null),
-        /** Permanent failure: continuation already yielding */             PERM_FAIL_YIELDING(null),
-        /** Permanent failure: continuation not mounted on the thread */    PERM_FAIL_NOT_MOUNTED(null),
-        /** Transient failure: continuation pinned due to a held CS */      TRANSIENT_FAIL_PINNED_CRITICAL_SECTION(Pinned.CRITICAL_SECTION),
-        /** Transient failure: continuation pinned due to native frame */   TRANSIENT_FAIL_PINNED_NATIVE(Pinned.NATIVE),
-        /** Transient failure: continuation pinned due to a held monitor */ TRANSIENT_FAIL_PINNED_MONITOR(Pinned.MONITOR);
+        SUCCESS,                                  /** Success */
+        TRANSIENT_FAIL_PINNED_CRITICAL_SECTION,   /** Transient failure: continuation pinned due to a held CS */
+        TRANSIENT_FAIL_PINNED_NATIVE,             /** Transient failure: continuation pinned due to native frame */
+        TRANSIENT_FAIL_PINNED_MONITOR,            /** Transient failure: continuation pinned due to a held monitor */
+        PERM_FAIL_NOT_MOUNTED,                    /** Permanent failure: continuation not mounted on the thread */
+        PERM_FAIL_UNSUPPORTED                     /** Permanent failure */
+    }
 
-        final Pinned pinned;
-        private PreemptStatus(Pinned reason) { this.pinned = reason; }
-        /**
-         * Whether or not the continuation is pinned.
-         * @return whether or not the continuation is pinned
-         **/
-        public Pinned pinned() { return pinned; }
+    private static PreemptStatus toPreemptStatus(int status) {
+        return switch (status) {
+            case 0 -> PreemptStatus.SUCCESS;
+            case 2 -> PreemptStatus.TRANSIENT_FAIL_PINNED_CRITICAL_SECTION;
+            case 3 -> PreemptStatus.TRANSIENT_FAIL_PINNED_NATIVE;
+            case 4 -> PreemptStatus.TRANSIENT_FAIL_PINNED_MONITOR;
+            case 6 -> PreemptStatus.PERM_FAIL_NOT_MOUNTED;
+            case 7 -> PreemptStatus.PERM_FAIL_UNSUPPORTED;
+            default -> throw new AssertionError("Unknown status: " + status);
+        };
     }
 
     private static Pinned pinnedReason(int reason) {
@@ -484,8 +487,11 @@ public class Continuation {
      * @throws UnsupportedOperationException if this continuation does not support preemption
      */
     public PreemptStatus tryPreempt(Thread thread) {
-        throw new UnsupportedOperationException("Not implemented");
+        int res = tryPreempt0(thread);
+        return toPreemptStatus(res);
     }
+
+    private native int tryPreempt0(Thread thread);
 
     // native methods
     private static native void registerNatives();

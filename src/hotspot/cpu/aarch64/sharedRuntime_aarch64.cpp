@@ -2398,6 +2398,18 @@ uint SharedRuntime::out_preserve_stack_slots() {
   return 0;
 }
 
+uint SharedRuntime::safepoint_blob_return_value_offset(frame f) {
+  CodeBlob* cb = f.cb();
+  assert(f.is_safepoint_blob_frame(), "");
+  if (((CompiledMethod*)cb)->has_wide_vectors()) {
+    RegisterSaver reg_save(true);
+    return reg_save.r0_offset_in_bytes() >> LogBytesPerWord;
+  } else {
+    RegisterSaver reg_save(false);
+    return reg_save.r0_offset_in_bytes() >> LogBytesPerWord;
+  }
+}
+
 #ifdef COMPILER2
 //------------------------------generate_uncommon_trap_blob--------------------
 void SharedRuntime::generate_uncommon_trap_blob() {

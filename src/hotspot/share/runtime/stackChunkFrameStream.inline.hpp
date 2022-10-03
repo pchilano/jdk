@@ -46,7 +46,7 @@ extern "C" bool dbg_is_safe(const void* p, intptr_t errvalue);
 #endif
 
 template <ChunkFrames frame_kind>
-StackChunkFrameStream<frame_kind>::StackChunkFrameStream(stackChunkOop chunk) DEBUG_ONLY(: _chunk(chunk)) {
+StackChunkFrameStream<frame_kind>::StackChunkFrameStream(stackChunkOop chunk) : _chunk(chunk) {
   assert(chunk->is_stackChunk_noinline(), "");
   assert(frame_kind == ChunkFrames::Mixed || !chunk->has_mixed_frames(), "");
 
@@ -71,7 +71,7 @@ StackChunkFrameStream<frame_kind>::StackChunkFrameStream(stackChunkOop chunk) DE
 
 template <ChunkFrames frame_kind>
 StackChunkFrameStream<frame_kind>::StackChunkFrameStream(stackChunkOop chunk, const frame& f)
-  DEBUG_ONLY(: _chunk(chunk)) {
+  : _chunk(chunk) {
   assert(chunk->is_stackChunk_noinline(), "");
   assert(frame_kind == ChunkFrames::Mixed || !chunk->has_mixed_frames(), "");
   // assert(!is_empty(), ""); -- allowed to be empty
@@ -329,6 +329,11 @@ inline void StackChunkFrameStream<frame_kind>::iterate_oops(OopClosureType* clos
   if (is_interpreted()) {
     frame f = to_frame();
     f.oops_interpreted_do(closure, nullptr, true);
+  } else if (is_stub()){
+    if (_chunk->has_oop_on_stub()) {
+      frame f = to_frame();
+      Devirtualizer::do_oop(closure, frame::saved_oop_result_address(f));
+    }
   } else {
     DEBUG_ONLY(int oops = 0;)
     for (OopMapStream oms(oopmap()); !oms.is_done(); oms.next()) {

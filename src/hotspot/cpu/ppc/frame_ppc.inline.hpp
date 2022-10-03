@@ -234,6 +234,18 @@ inline void frame::set_saved_oop_result(RegisterMap* map, oop obj) {
   *((oop*)map->location(R3->as_VMReg(), nullptr)) = obj;
 }
 
+#ifdef ASSERT
+inline oop* frame::saved_oop_result_address(RegisterMap* map) {
+  Unimplemented();
+  return nullptr;
+}
+#endif
+
+inline oop* frame::saved_oop_result_address(const frame& f) {
+  Unimplemented();
+  return nullptr;
+}
+
 inline const ImmutableOopMap* frame::get_oop_map() const {
   if (_cb == NULL) return NULL;
   if (_cb->oop_maps() != NULL) {

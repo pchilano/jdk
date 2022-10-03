@@ -33,6 +33,10 @@ inline void FreezeBase::set_top_frame_metadata_pd(const frame& hf) {
   Unimplemented();
 }
 
+inline void FreezeBase::preempt_start_pd(frame f) {
+  Unimplemented();
+}
+
 template<typename FKind>
 inline frame FreezeBase::sender(const frame& f) {
   Unimplemented();
@@ -57,6 +61,10 @@ inline void FreezeBase::patch_pd(frame& hf, const frame& caller) {
 }
 
 inline void FreezeBase::patch_stack_pd(intptr_t* frame_sp, intptr_t* heap_sp) {
+  Unimplemented();
+}
+
+inline void FreezeBase::preempt_epilog_pd() {
   Unimplemented();
 }
 
@@ -85,6 +93,11 @@ inline intptr_t* ThawBase::align(const frame& hf, intptr_t* frame_sp, frame& cal
 
 inline void ThawBase::patch_pd(frame& f, const frame& caller) {
   Unimplemented();
+}
+
+inline intptr_t* ThawBase::push_preempt_rerun_interpreter_adapter(frame top) {
+  Unimplemented();
+  return nullptr;
 }
 
 void ThawBase::patch_chunk_pd(intptr_t* sp) {

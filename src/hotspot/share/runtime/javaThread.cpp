@@ -408,6 +408,7 @@ JavaThread::JavaThread() :
 
   _thread_state(_thread_new),
   _saved_exception_pc(nullptr),
+  _return_oop(nullptr),
 #ifdef ASSERT
   _no_safepoint_count(0),
   _visited_for_critical_count(false),
@@ -457,8 +458,10 @@ JavaThread::JavaThread() :
   _cont_fastpath_thread_state(1),
   _held_monitor_count(0),
   _jni_monitor_count(0),
+  _preempting(false),
 
   _handshake(this),
+  DEBUG_ONLY(_current_handshake_op(nullptr) COMMA)
 
   _popframe_preserved_args(nullptr),
   _popframe_preserved_args_size(0),
@@ -1165,7 +1168,7 @@ void JavaThread::set_is_VTMS_transition_disabler(bool val) {
 // Guarantees on return (for a valid target thread):
 //   - Target thread will not execute any new bytecode.
 //   - Target thread will not enter any new monitors.
-//
+
 bool JavaThread::java_suspend() {
 #if INCLUDE_JVMTI
   // Suspending a JavaThread in VTMS transition or disabling VTMS transitions can cause deadlocks.
@@ -1393,6 +1396,7 @@ void JavaThread::oops_do_no_frames(OopClosure* f, CodeBlobClosure* cf) {
   // around using this function
   f->do_oop((oop*) &_vm_result);
   f->do_oop((oop*) &_exception_oop);
+  f->do_oop((oop*) &_return_oop);
 #if INCLUDE_JVMCI
   f->do_oop((oop*) &_jvmci_reserved_oop0);
 #endif

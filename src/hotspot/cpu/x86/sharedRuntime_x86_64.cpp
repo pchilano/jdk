@@ -2332,6 +2332,10 @@ uint SharedRuntime::in_preserve_stack_slots() {
   return 4 + 2 * VerifyStackAtCalls;
 }
 
+uint SharedRuntime::safepoint_blob_return_value_offset(frame f) {
+  return RegisterSaver::rax_offset_in_bytes() >> LogBytesPerWord;
+}
+
 //------------------------------generate_deopt_blob----------------------------
 void SharedRuntime::generate_deopt_blob() {
   // Allocate space for the code
