@@ -211,7 +211,8 @@ template<typename FKind> frame ThawBase::new_stack_frame(const frame& hf, frame&
 
   if (FKind::interpreted) {
     intptr_t* heap_sp = hf.unextended_sp();
-    const int fsize = ContinuationHelper::InterpretedFrame::frame_bottom(hf) - hf.unextended_sp();
+    int overlap = caller.is_interpreted_frame() ? ContinuationHelper::InterpretedFrame::stack_argsize(hf) : 0;
+    const int fsize = ContinuationHelper::InterpretedFrame::frame_bottom(hf) - hf.unextended_sp() - overlap;
     const int locals = hf.interpreter_frame_method()->max_locals();
     intptr_t* frame_sp = caller.unextended_sp() - fsize;
     intptr_t* fp = frame_sp + (hf.fp() - heap_sp);
@@ -230,7 +231,7 @@ template<typename FKind> frame ThawBase::new_stack_frame(const frame& hf, frame&
     int fsize = FKind::size(hf);
     intptr_t* frame_sp = caller.unextended_sp() - fsize;
     if (bottom || caller.is_interpreted_frame()) {
-      int argsize = hf.compiled_frame_stack_argsize();
+      int argsize = FKind::stack_argsize(hf);
 
       fsize += argsize;
       frame_sp   -= argsize;
@@ -269,6 +270,23 @@ inline intptr_t* ThawBase::align(const frame& hf, intptr_t* frame_sp, frame& cal
 
 inline void ThawBase::patch_pd(frame& f, const frame& caller) {
   patch_callee_link(caller, caller.fp());
+}
+
+intptr_t* ThawBase::push_preempt_rerun_interpreter_adapter(frame top) {
+  intptr_t* sp = top.sp();
+  intptr_t fp = *(sp - frame::sender_sp_offset);
+  address pc = StubRoutines::cont_preempt_rerun_interpreter_adapter();
+
+  sp -= frame::metadata_words;
+  *(address*)(sp - frame::sender_sp_ret_address_offset()) = pc;
+  *(sp - frame::sender_sp_offset) = fp;
+
+  // Clear out last_sp since we assert it when calling into the VM.
+  *(intptr_t*)top.addr_at(frame::interpreter_frame_last_sp_offset) = 0;
+
+  log_develop_trace(continuations, preempt)("push_preempt_rerun_interpreter_adapter() initial sp: " INTPTR_FORMAT " final sp: " INTPTR_FORMAT " fp: " INTPTR_FORMAT,
+    p2i(sp + frame::metadata_words), p2i(sp), fp);
+  return sp;
 }
 
 static inline void derelativize_one(intptr_t* const fp, int offset) {

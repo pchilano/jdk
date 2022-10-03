@@ -1922,6 +1922,10 @@ void JvmtiExport::post_single_step(JavaThread *thread, Method* method, address l
   if (mh->jvmti_mount_transition() || thread->is_in_VTMS_transition()) {
     return; // no events should be posted if thread is in a VTMS transition
   }
+  if (thread->preempting()) {
+    // callback might call into Java after continuation is already considered preempted
+    return;
+  }
 
   JvmtiEnvThreadStateIterator it(state);
   for (JvmtiEnvThreadState* ets = it.first(); ets != NULL; ets = it.next(ets)) {

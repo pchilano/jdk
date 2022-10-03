@@ -331,8 +331,10 @@ void stackChunkOopDesc::transform() {
   if (UseCompressedOops) {
     TransformStackChunkClosure<OopKind::Narrow> closure(this);
     iterate_stack(&closure);
+    log_develop_trace(continuations)("Bitmap created and stackchunk transformed with CompressedOop: base:" INTPTR_FORMAT " shift:%d", p2i(CompressedOops::base()), CompressedOops::shift());
   } else {
     TransformStackChunkClosure<OopKind::Wide> closure(this);
+    log_develop_trace(continuations)("Bitmap created");
     iterate_stack(&closure);
   }
 }
@@ -413,6 +415,8 @@ void stackChunkOopDesc::fix_thawed_frame(const frame& f, const RegisterMapT* map
     UncompressOopsOopClosure oop_closure;
     if (f.is_interpreted_frame()) {
       f.oops_interpreted_do(&oop_closure, nullptr);
+    } else if (f.is_safepoint_blob_frame() && has_oop_on_stub()){
+      oop_closure.do_oop(frame::saved_oop_result_address(f));
     } else {
       OopMapDo<UncompressOopsOopClosure, DerivedOopClosure, SkipNullValue> visitor(&oop_closure, nullptr);
       visitor.oops_do(&f, map, f.oop_map());

@@ -142,7 +142,7 @@ void SafepointMechanism::process(JavaThread *thread, bool allow_suspend, bool ch
 
   update_poll_values(thread);
   OrderAccess::cross_modify_fence();
-  assert(sp_before == thread->last_Java_sp(), "Anchor has changed");
+  assert(sp_before == thread->last_Java_sp() || Continuation::verify_preemption(thread), "");
 }
 
 void SafepointMechanism::initialize_header(JavaThread* thread) {
