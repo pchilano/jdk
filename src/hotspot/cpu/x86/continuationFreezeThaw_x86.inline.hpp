@@ -51,6 +51,18 @@ inline void FreezeBase::patch_stack_pd(intptr_t* frame_sp, intptr_t* heap_sp) {
 
 // Slow path
 
+inline void FreezeBase::preempt_start_pd(frame f) {
+  if (Interpreter::contains(f.pc())) {
+    // When thawing we add alignment if the top interpreted frame is not 16 byte
+    // aligned already (see finish_thaw) which will have the effect of adding an
+    // entry to the expression stack. On non-preempt cases this is not an issue
+    // because when returning to an interpreted frame we execute the template code
+    // generate_return_entry_for() which will restore last_sp. We will do the same when
+    // returning to the preempt interpreter adapter but first we need to save it here.
+    *(intptr_t**)f.addr_at(frame::interpreter_frame_last_sp_offset) = f.sp();
+  }
+}
+
 template<typename FKind>
 inline frame FreezeBase::sender(const frame& f) {
   assert(FKind::is_instance(f), "");
@@ -183,6 +195,12 @@ inline void FreezeBase::patch_pd(frame& hf, const frame& caller) {
   }
 }
 
+inline void FreezeBase::preempt_epilog_pd() {
+  // Patch the pc of the now old last Java frame (we already set the anchor to enterSpecial)
+  // so that when target goes back to Java it will actually return to the preempt cleanup stub.
+  _top_frame_sp[-1] = (intptr_t)StubRoutines::cont_preempt_stub();
+}
+
 //////// Thaw
 
 // Fast path
@@ -280,9 +298,6 @@ intptr_t* ThawBase::push_preempt_rerun_interpreter_adapter(frame top) {
   sp -= frame::metadata_words;
   *(address*)(sp - frame::sender_sp_ret_address_offset()) = pc;
   *(sp - frame::sender_sp_offset) = fp;
-
-  // Clear out last_sp since we assert it when calling into the VM.
-  *(intptr_t*)top.addr_at(frame::interpreter_frame_last_sp_offset) = 0;
 
   log_develop_trace(continuations, preempt)("push_preempt_rerun_interpreter_adapter() initial sp: " INTPTR_FORMAT " final sp: " INTPTR_FORMAT " fp: " INTPTR_FORMAT,
     p2i(sp + frame::metadata_words), p2i(sp), fp);
