@@ -24,6 +24,8 @@
 
 #include "precompiled.hpp"
 #include "gc/shared/barrierSetNMethod.hpp"
+#include "oops/oop.inline.hpp"
+#include "prims/jvmtiEventController.inline.hpp"
 #include "prims/jvmtiThreadState.inline.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/continuation.hpp"

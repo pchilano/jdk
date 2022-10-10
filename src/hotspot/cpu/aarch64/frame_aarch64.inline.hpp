@@ -354,6 +354,23 @@ inline void frame::set_saved_oop_result(RegisterMap* map, oop obj) {
   *result_adr = obj;
 }
 
+#ifdef ASSERT
+inline oop* frame::saved_oop_result_address(RegisterMap* map) {
+  PRAGMA_DIAG_PUSH
+  PRAGMA_NONNULL_IGNORED
+  oop* result_adr = (oop *)map->location(r0->as_VMReg(), nullptr);
+  PRAGMA_DIAG_POP
+  guarantee(result_adr != NULL, "bad register save location");
+  return result_adr;
+}
+#endif
+
+inline oop* frame::saved_oop_result_address(const frame& f) {
+  oop* result_adr = (oop *)(f.sp() + SharedRuntime::safepoint_blob_return_value_offset(f));
+  guarantee(result_adr != NULL, "bad register save location");
+  return result_adr;
+}
+
 inline bool frame::is_interpreted_frame() const {
   return Interpreter::contains(pc());
 }

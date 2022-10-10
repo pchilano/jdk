@@ -349,7 +349,7 @@ inline oop* frame::saved_oop_result_address(RegisterMap* map) {
 PRAGMA_DIAG_POP
 
 inline oop* frame::saved_oop_result_address(const frame& f) {
-  oop* result_adr = (oop *)(f.sp() + SharedRuntime::safepoint_blob_return_value_offset());
+  oop* result_adr = (oop *)(f.sp() + SharedRuntime::safepoint_blob_return_value_offset(f));
   guarantee(result_adr != NULL, "bad register save location");
   return result_adr;
 }

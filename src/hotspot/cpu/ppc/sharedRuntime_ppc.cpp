@@ -2363,6 +2363,11 @@ uint SharedRuntime::out_preserve_stack_slots() {
 #endif
 }
 
+uint SharedRuntime::safepoint_blob_return_value_offset(frame f) {
+  Unimplemented();
+  return 0;
+}
+
 #if defined(COMPILER1) || defined(COMPILER2)
 // Frame generation for deopt and uncommon trap blobs.
 static void push_skeleton_frame(MacroAssembler* masm, bool deopt,

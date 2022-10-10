@@ -1552,14 +1552,12 @@ void MacroAssembler::call_VM_leaf_base(address entry_point,
                                        Label *retaddr) {
   Label E, L;
 
-  stp(rscratch1, rmethod, Address(pre(sp, -2 * wordSize)));
-
   mov(rscratch1, entry_point);
   blr(rscratch1);
   if (retaddr)
     bind(*retaddr);
 
-  ldp(rscratch1, rmethod, Address(post(sp, 2 * wordSize)));
+  ldr(rmethod, Address(rfp, frame::interpreter_frame_method_offset * wordSize));
 }
 
 void MacroAssembler::call_VM_leaf(address entry_point, int number_of_arguments) {
