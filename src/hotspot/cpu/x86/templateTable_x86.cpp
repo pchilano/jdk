@@ -2589,10 +2589,8 @@ void TemplateTable::_return(TosState state) {
 #endif
     __ jcc(Assembler::zero, no_safepoint);
     __ push(state);
-    __ push_cont_fastpath();
     __ call_VM(noreg, CAST_FROM_FN_PTR(address,
                                        InterpreterRuntime::at_safepoint));
-    __ pop_cont_fastpath();
     __ pop(state);
     __ bind(no_safepoint);
   }

@@ -462,6 +462,9 @@ class SharedRuntime: AllStatic {
   // On PowerPC it includes the 4 words holding the old TOC & LR glue.
   static uint in_preserve_stack_slots();
 
+  // Offset from safepoint stub's sp() where register with return value is saved.
+  static uint safepoint_blob_return_value_offset(frame f);
+
   // Is vector's size (in bytes) bigger than a size saved by default?
   // For example, on x86 16 bytes XMM registers are saved by default.
   static bool is_wide_vector(int size);

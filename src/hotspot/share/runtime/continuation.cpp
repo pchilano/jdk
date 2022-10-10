@@ -26,6 +26,9 @@
 #include "classfile/vmSymbols.hpp"
 #include "gc/shared/barrierSetNMethod.hpp"
 #include "oops/method.inline.hpp"
+#include "oops/oop.inline.hpp"
+#include "prims/jvmtiEventController.inline.hpp"
+#include "prims/jvmtiThreadState.inline.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/continuation.hpp"
 #include "runtime/continuationEntry.inline.hpp"
@@ -34,6 +37,7 @@
 #include "runtime/continuationWrapper.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/javaThread.inline.hpp"
+#include "runtime/jniHandles.inline.hpp"
 #include "runtime/osThread.hpp"
 #include "runtime/vframe.inline.hpp"
 #include "runtime/vframe_hp.hpp"
@@ -54,6 +58,162 @@ JVM_ENTRY(void, CONT_unpin(JNIEnv* env, jclass cls)) {
   }
 }
 JVM_END
+
+class PreemptHandshake : public AllocatingHandshakeClosure {
+  JvmtiSampledObjectAllocEventCollector _jsoaec;
+  Handle _cont;
+  int _result;
+
+public:
+  PreemptHandshake(Handle cont) : AllocatingHandshakeClosure("PreemptHandshake"),
+    _jsoaec(true), _cont(cont), _result(freeze_not_mounted) {}
+
+  void do_thread(Thread* thr) {
+    JavaThread* target = JavaThread::cast(thr);
+    _result = Continuation::try_preempt(target, _cont);
+  }
+  int result() { return _result; }
+};
+
+JVM_ENTRY(jint, CONT_tryPreempt0(JNIEnv* env, jobject jcont, jobject jthread)) {
+  JavaThread* current = JavaThread::thread_from_jni_environment(env);
+  assert(current == JavaThread::current(), "should be");
+  jint result = freeze_not_mounted;
+
+  ThreadsListHandle tlh(current);
+  JavaThread* target = NULL;
+  bool is_alive = tlh.cv_internal_thread_to_JavaThread(jthread, &target, NULL);
+
+  if (is_alive) {
+    Handle conth(current, JNIHandles::resolve_non_null(jcont));
+    PreemptHandshake ph(conth);
+    Handshake::execute(&ph, target);
+    result = ph.result();
+  }
+  return result;
+}
+JVM_END
+
+static bool is_safe_to_preempt_for_jvmti(JavaThread* thread) {
+#if INCLUDE_JVMTI
+  assert(!thread->has_pending_popframe(), "should be true; no support for vthreads yet");
+
+  JvmtiThreadState* state = thread->jvmti_thread_state();
+  if (state == NULL) {
+    return true;
+  }
+  assert(!state->is_earlyret_pending(), "should be true; no support for vthreads yet");
+
+  // Target could have been seen safepoint safe at InterpreterRuntime::at_safepoint() due
+  // to being in native executing single step callbacks. Avoid preempting in those cases
+  // since the callbacks might call into Java after the target is already considered preempted.
+  // Also avoid dealing with clearing NotifyFramePop events since that requires acquiring the
+  // JvmtiThreadState_lock.
+  bool at_int_safepoint = Interpreter::contains(thread->last_Java_pc());
+  JvmtiEnvThreadStateIterator it(state);
+  for (JvmtiEnvThreadState* ets = it.first(); ets != NULL; ets = it.next(ets)) {
+    if ((at_int_safepoint && ets->is_enabled(JVMTI_EVENT_SINGLE_STEP)) || ets->has_frame_pops()) {
+      return false;
+    }
+  }
+#endif
+  return true;
+}
+
+static bool is_safe_pc_to_preempt(address pc, JavaThread* target) {
+  if (Interpreter::contains(pc)) {
+    InterpreterCodelet* codelet = Interpreter::codelet_containing(pc);
+    if (codelet == nullptr) {
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: no codelet (unsafe)");
+      return false;
+    }
+    // We allow preemption only when at a safepoint codelet or a return byteocde
+    if (codelet->bytecode() >= 0 && Bytecodes::is_return(codelet->bytecode())) {
+      assert(codelet->kind() == InterpreterCodelet::codelet_bytecode, "");
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: safe bytecode: %s", Bytecodes::name(codelet->bytecode()));
+      return true;
+    } else if (codelet->kind() == InterpreterCodelet::codelet_safepoint_entry) {
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: safepoint entry: %s", codelet->description());
+      return true;
+    } else {
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: %s (unsafe)", codelet->description());
+      return false;
+    }
+  } else {
+    CodeBlob* cb = CodeCache::find_blob(pc);
+    if (cb->is_safepoint_stub()) {
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: safepoint stub. Return poll: %d", !target->is_at_poll_safepoint());
+      return true;
+    } else {
+      log_trace(continuations, preempt)("is_safe_pc_to_preempt: not safepoint stub");
+      return false;
+    }
+  }
+}
+
+static bool is_safe_to_preempt(JavaThread* thread) {
+  if (thread->preempting()) {
+    return false;
+  }
+  if (!thread->has_last_Java_frame()) {
+    return false;
+  }
+  if (thread->has_pending_exception()) {
+    return false;
+  }
+  if (!is_safe_pc_to_preempt(thread->last_Java_pc(), thread)) {
+    return false;
+  }
+  if (!is_safe_to_preempt_for_jvmti(thread)) {
+    return false;
+  }
+  return true;
+}
+
+typedef int (*FreezeContFnT)(JavaThread*, intptr_t*);
+
+int Continuation::try_preempt(JavaThread* target, Handle continuation) {
+  ContinuationEntry* ce = target->last_continuation();
+  if (ce == nullptr || ce->cont_oop() != continuation() || is_continuation_done(ce)) {
+    return freeze_not_mounted;
+  }
+  if (!is_safe_to_preempt(target)) {
+    return freeze_pinned_native;
+  }
+  assert(!is_continuation_preempted(ce), "shouldn't be");
+
+  target->set_preempting(true);
+  int res = CAST_TO_FN_PTR(FreezeContFnT, freeze_preempt_entry())(target, target->last_Java_sp());
+  log_trace(continuations, preempt)("try_preempt: %d", res);
+  if (res != freeze_ok) {
+    target->set_preempting(false);
+  }
+  return res;
+}
+
+bool Continuation::is_continuation_preempted(ContinuationEntry* entry) {
+  oop continuation = entry->cont_oop();
+  return jdk_internal_vm_Continuation::is_preempted(continuation);
+}
+
+bool Continuation::is_continuation_done(ContinuationEntry* entry) {
+  oop continuation = entry->cont_oop();
+  return jdk_internal_vm_Continuation::done(continuation);
+}
+
+#ifdef ASSERT
+bool Continuation::verify_preemption(JavaThread* thread) {
+  ContinuationEntry* cont_entry = thread->last_continuation();
+  JvmtiThreadState* state = thread->jvmti_thread_state();
+  assert(cont_entry != nullptr, "");
+  assert(is_continuation_preempted(cont_entry), "continuation not marked preempted");
+  assert(thread->last_Java_sp() == cont_entry->entry_sp(), "wrong anchor change");
+  assert(!thread->has_pending_exception(), "should not have pending exception after preemption");
+  assert(!thread->has_pending_popframe(), "should not have popframe condition after preemption");
+  assert(state == nullptr || !state->is_earlyret_pending(), "should not have earlyret condition after preemption");
+  return true;
+}
+#endif
 
 #ifndef PRODUCT
 static jlong java_tid(JavaThread* thread) {
@@ -437,6 +597,7 @@ static JNINativeMethod CONT_methods[] = {
     {CC"pin",              CC"()V",                                    FN_PTR(CONT_pin)},
     {CC"unpin",            CC"()V",                                    FN_PTR(CONT_unpin)},
     {CC"isPinned0",        CC"(Ljdk/internal/vm/ContinuationScope;)I", FN_PTR(CONT_isPinned0)},
+    {CC"tryPreempt0",      CC"(Ljava/lang/Thread;)I",                  FN_PTR(CONT_tryPreempt0)},
 };
 
 void CONT_RegisterNativeMethods(JNIEnv *env, jclass cls) {

@@ -331,8 +331,10 @@ void stackChunkOopDesc::transform() {
   if (UseCompressedOops) {
     TransformStackChunkClosure<OopKind::Narrow> closure(this);
     iterate_stack(&closure);
+    log_develop_trace(continuations)("Bitmap created and stackchunk transformed with CompressedOop: base:" INTPTR_FORMAT " shift:%d", p2i(CompressedOops::base()), CompressedOops::shift());
   } else {
     TransformStackChunkClosure<OopKind::Wide> closure(this);
+    log_develop_trace(continuations)("Bitmap created");
     iterate_stack(&closure);
   }
 }
@@ -413,6 +415,8 @@ void stackChunkOopDesc::fix_thawed_frame(const frame& f, const RegisterMapT* map
     UncompressOopsOopClosure oop_closure;
     if (f.is_interpreted_frame()) {
       f.oops_interpreted_do(&oop_closure, nullptr);
+    } else if (f.is_safepoint_blob_frame() && has_oop_on_stub()){
+      oop_closure.do_oop(frame::saved_oop_result_address(f));
     } else {
       OopMapDo<UncompressOopsOopClosure, DerivedOopClosure, SkipNullValue> visitor(&oop_closure, nullptr);
       visitor.oops_do(&f, map, f.oop_map());
@@ -485,9 +489,9 @@ public:
   int _num_interpreted_frames;
   int _num_i2c;
 
-  VerifyStackChunkFrameClosure(stackChunkOop chunk, int num_frames, int size)
+  VerifyStackChunkFrameClosure(stackChunkOop chunk)
     : _chunk(chunk), _sp(nullptr), _cb(nullptr), _callee_interpreted(false),
-      _size(size), _argsize(0), _num_oops(0), _num_frames(num_frames), _num_interpreted_frames(0), _num_i2c(0) {}
+      _size(0), _argsize(0), _num_oops(0), _num_frames(0), _num_interpreted_frames(0), _num_i2c(0) {}
 
   template <ChunkFrames frame_kind, typename RegisterMapT>
   bool do_frame(const StackChunkFrameStream<frame_kind>& f, const RegisterMapT* map) {
@@ -583,9 +587,7 @@ bool stackChunkOopDesc::verify(size_t* out_size, int* out_oops, int* out_frames,
   const StackChunkFrameStream<ChunkFrames::Mixed> first(this);
   const bool has_safepoint_stub_frame = first.is_stub();
 
-  VerifyStackChunkFrameClosure closure(this,
-                                       has_safepoint_stub_frame ? 1 : 0, // Iterate_stack skips the safepoint stub
-                                       has_safepoint_stub_frame ? first.frame_size() : 0);
+  VerifyStackChunkFrameClosure closure(this);
   iterate_stack(&closure);
 
   assert(!is_empty() || closure._cb == nullptr, "");

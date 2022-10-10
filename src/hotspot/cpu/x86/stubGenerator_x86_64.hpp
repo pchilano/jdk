@@ -480,6 +480,9 @@ class StubGenerator: public StubCodeGenerator {
   address generate_cont_returnBarrier();
   address generate_cont_returnBarrier_exception();
 
+  address generate_cont_preempt_stub();
+  address generate_cont_preempt_rerun_interpreter_adapter();
+
 #if INCLUDE_JFR
 
   // For c2: c_rarg0 is junk, call to runtime to write a checkpoint.

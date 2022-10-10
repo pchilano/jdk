@@ -87,6 +87,11 @@ inline void ThawBase::patch_pd(frame& f, const frame& caller) {
   Unimplemented();
 }
 
+inline intptr_t* ThawBase::push_preempt_rerun_interpreter_adapter(frame top) {
+  Unimplemented();
+  return nullptr;
+}
+
 void ThawBase::patch_chunk_pd(intptr_t* sp) {
   Unimplemented();
 }

@@ -176,6 +176,8 @@ address StubRoutines::_vector_d_math[VectorSupport::NUM_VEC_SIZES][VectorSupport
 address StubRoutines::_cont_thaw          = NULL;
 address StubRoutines::_cont_returnBarrier = NULL;
 address StubRoutines::_cont_returnBarrierExc = NULL;
+address StubRoutines::_cont_preempt_stub = NULL;
+address StubRoutines::_cont_preempt_rerun_interpreter_adapter = NULL;
 
 JFR_ONLY(RuntimeStub* StubRoutines::_jfr_write_checkpoint_stub = NULL;)
 JFR_ONLY(address StubRoutines::_jfr_write_checkpoint = NULL;)

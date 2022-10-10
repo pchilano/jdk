@@ -426,6 +426,9 @@ class frame {
   oop saved_oop_result(RegisterMap* map) const;
   void set_saved_oop_result(RegisterMap* map, oop obj);
 
+  static oop* saved_oop_result_address(const frame& f);
+  DEBUG_ONLY(static oop* saved_oop_result_address(RegisterMap* map);)
+
   // For debugging
  private:
   const char* print_name() const;
@@ -441,7 +444,7 @@ class frame {
   static void print_C_frame(outputStream* st, char* buf, int buflen, address pc);
 
   // Add annotated descriptions of memory locations belonging to this frame to values
-  void describe(FrameValues& values, int frame_no, const RegisterMap* reg_map=NULL);
+  void describe(FrameValues& values, int frame_no, const RegisterMap* reg_map=NULL, bool top = false);
 
   // Conversion from a VMReg to physical stack location
   template <typename RegisterMapT>

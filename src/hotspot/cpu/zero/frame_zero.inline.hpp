@@ -162,6 +162,18 @@ inline oop frame::saved_oop_result(RegisterMap* map) const {
   return NULL;
 }
 
+#ifdef ASSERT
+inline oop* frame::saved_oop_result_address(RegisterMap* map) {
+  Unimplemented();
+  return nullptr;
+}
+#endif
+
+inline oop* frame::saved_oop_result_address(const frame& f) {
+  Unimplemented();
+  return nullptr;
+}
+
 inline bool frame::is_older(intptr_t* id) const {
   ShouldNotCallThis();
   return false;
