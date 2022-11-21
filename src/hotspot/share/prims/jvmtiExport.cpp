@@ -2005,6 +2005,7 @@ void JvmtiExport::post_exception_throw(JavaThread *thread, Method* method, addre
         // if GC happens.
         methodHandle current_mh = methodHandle(thread, current_method);
         int current_bci = -1;
+        int count = 0;
         do {
           current_method = st.method();
           current_mh = methodHandle(thread, current_method);
@@ -2020,6 +2021,9 @@ void JvmtiExport::post_exception_throw(JavaThread *thread, Method* method, addre
               should_repeat = true;
             }
           } while (should_repeat && (current_bci != -1));
+          if (count++ > 2) {
+            Universe::heap()->collect(GCCause::_wb_full_gc);
+          }
           st.next();
         } while ((current_bci < 0) && (!st.at_end()));
 
