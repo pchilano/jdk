@@ -257,6 +257,15 @@ JvmtiVTMSTransitionDisabler::JvmtiVTMSTransitionDisabler(jthread thread)
   }
   if (_thread != nullptr) {
     VTMS_transition_disable_for_one(); // disable VTMS transitions for one virtual thread
+#ifdef ASSERT
+    Handle vth = Handle(JavaThread::current(), JNIHandles::resolve_external_guard(_thread));
+    if (java_lang_VirtualThread::is_instance(vth())) {
+      JvmtiThreadState* vstate = java_lang_Thread::jvmti_thread_state(vth());
+      if (vstate != NULL) {
+        assert(!vstate->is_in_VTMS_transition(), "should not be in a transition");
+      }
+    }
+#endif
   } else {
     VTMS_transition_disable_for_all(); // disable VTMS transitions for all virtual threads
   }
@@ -312,6 +321,7 @@ JvmtiVTMSTransitionDisabler::VTMS_transition_disable_for_one() {
   while (vstate != NULL && vstate->is_in_VTMS_transition()) {
     ml.wait(10); // wait while the virtual thread is in transition
   }
+  os::naked_short_nanosleep(10 * (NANOUNITS / MICROUNITS));
   java_lang_Thread::inc_VTMS_transition_disable_count(vth());
 #ifdef ASSERT
   thread->set_is_VTMS_transition_disabler(true);
