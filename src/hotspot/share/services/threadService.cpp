@@ -1120,7 +1120,7 @@ ThreadsListEnumerator::ThreadsListEnumerator(Thread* cur_thread,
     }
 
     // skip instances of BoundVirtualThread
-    if (!include_bound_virtual_threads && jt->threadObj()->is_a(vmClasses::BoundVirtualThread_klass())) {
+    if (!include_bound_virtual_threads && (!VMContinuations && jt->threadObj()->is_a(vmClasses::BaseVirtualThread_klass()))) {
       continue;
     }
 
