@@ -636,24 +636,36 @@ JRT_ENTRY(void, SharedRuntime::notify_jvmti_object_alloc(oopDesc* o, JavaThread*
   current->set_vm_result(h());
 JRT_END
 
-JRT_ENTRY(void, SharedRuntime::notify_jvmti_mount(oopDesc* vt, jboolean hide, jboolean first_mount, JavaThread* current))
+JRT_ENTRY(void, SharedRuntime::notify_jvmti_mount(oopDesc* vt, jboolean hide, JavaThread* current))
   jobject vthread = JNIHandles::make_local(const_cast<oopDesc*>(vt));
 
   if (hide) {
-    JvmtiVTMSTransitionDisabler::VTMS_mount_begin(vthread, first_mount);
+    JvmtiVTMSTransitionDisabler::VTMS_mount_begin(vthread);
   } else {
-    JvmtiVTMSTransitionDisabler::VTMS_mount_end(vthread, first_mount);
+    JvmtiVTMSTransitionDisabler::VTMS_mount_end(vthread);
   }
 JRT_END
 
-JRT_ENTRY(void, SharedRuntime::notify_jvmti_unmount(oopDesc* vt, jboolean hide, jboolean last_unmount, JavaThread* current))
+JRT_ENTRY(void, SharedRuntime::notify_jvmti_unmount(oopDesc* vt, jboolean hide, JavaThread* current))
   jobject vthread = JNIHandles::make_local(const_cast<oopDesc*>(vt));
 
   if (hide) {
-    JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(vthread, last_unmount);
+    JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(vthread);
   } else {
-    JvmtiVTMSTransitionDisabler::VTMS_unmount_end(vthread, last_unmount);
+    JvmtiVTMSTransitionDisabler::VTMS_unmount_end(vthread);
   }
+JRT_END
+
+JRT_ENTRY(void, SharedRuntime::notify_jvmti_vthread_start(oopDesc* vt, jboolean dummy, JavaThread* current))
+  jobject vthread = JNIHandles::make_local(const_cast<oopDesc*>(vt));
+
+  JvmtiVTMSTransitionDisabler::VTMS_mount_end(vthread, true);
+JRT_END
+
+JRT_ENTRY(void, SharedRuntime::notify_jvmti_vthread_end(oopDesc* vt, jboolean dummy, JavaThread* current))
+  jobject vthread = JNIHandles::make_local(const_cast<oopDesc*>(vt));
+
+  JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(vthread, true);
 JRT_END
 #endif // INCLUDE_JVMTI
 

@@ -139,6 +139,8 @@ class OptoRuntime : public AllStatic {
   static address _notify_jvmti_object_alloc;
   static address _notify_jvmti_mount;
   static address _notify_jvmti_unmount;
+  static address _notify_jvmti_vthread_start;
+  static address _notify_jvmti_vthread_end;
 #endif
 
   //
@@ -217,6 +219,8 @@ private:
   static address notify_jvmti_object_alloc()             { return _notify_jvmti_object_alloc; }
   static address notify_jvmti_mount()                    { return _notify_jvmti_mount; }
   static address notify_jvmti_unmount()                  { return _notify_jvmti_unmount; }
+  static address notify_jvmti_vthread_start()            { return _notify_jvmti_vthread_start; }
+  static address notify_jvmti_vthread_end()              { return _notify_jvmti_vthread_end; }
 #endif
 
   static ExceptionBlob*    exception_blob()                      { return _exception_blob; }

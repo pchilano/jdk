@@ -777,6 +777,8 @@ bool C2Compiler::is_intrinsic_supported(const methodHandle& method) {
 #if INCLUDE_JVMTI
   case vmIntrinsics::_notifyJvmtiMount:
   case vmIntrinsics::_notifyJvmtiUnmount:
+  case vmIntrinsics::_notifyJvmtiStart:
+  case vmIntrinsics::_notifyJvmtiEnd:
   case vmIntrinsics::_notifyJvmtiHideFrames:
 #endif
     break;

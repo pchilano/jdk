@@ -219,6 +219,8 @@ JVM_SetBootLoaderUnnamedModule
 # Virtual thread notifications for JVMTI
 JVM_VirtualThreadMount
 JVM_VirtualThreadUnmount
+JVM_VirtualThreadStart
+JVM_VirtualThreadEnd
 JVM_VirtualThreadHideFrames
 
 # Scoped values

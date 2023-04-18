@@ -584,8 +584,10 @@ class methodHandle;
    do_alias(    continuationDoYield_signature,     void_int_signature)                                                  \
                                                                                                                         \
   /* java/lang/VirtualThread */                                                                                         \
-  do_intrinsic(_notifyJvmtiMount, java_lang_VirtualThread, notifyJvmtiMount_name, bool_bool_void_signature, F_RN)       \
-  do_intrinsic(_notifyJvmtiUnmount, java_lang_VirtualThread, notifyJvmtiUnmount_name, bool_bool_void_signature, F_RN)   \
+  do_intrinsic(_notifyJvmtiMount, java_lang_VirtualThread, notifyJvmtiMount_name, bool_void_signature, F_RN)            \
+  do_intrinsic(_notifyJvmtiUnmount, java_lang_VirtualThread, notifyJvmtiUnmount_name, bool_void_signature, F_RN)        \
+  do_intrinsic(_notifyJvmtiStart, java_lang_VirtualThread, notifyJvmtiStart_name, void_method_signature, F_RN)          \
+  do_intrinsic(_notifyJvmtiEnd, java_lang_VirtualThread, notifyJvmtiEnd_name, void_method_signature, F_RN)              \
   do_intrinsic(_notifyJvmtiHideFrames, java_lang_VirtualThread, notifyJvmtiHideFrames_name, bool_void_signature, F_RN)  \
                                                                                                                         \
   /* support for UnsafeConstants */                                                                                     \

@@ -220,7 +220,7 @@ final class VirtualThread extends BaseVirtualThread {
         }
 
         // notify JVMTI before mount
-        notifyJvmtiMount(/*hide*/true, firstRun);
+        notifyJvmtiMount(/*hide*/true);
 
         try {
             cont.run();
@@ -300,7 +300,7 @@ final class VirtualThread extends BaseVirtualThread {
 
         // first mount
         mount();
-        notifyJvmtiMount(/*hide*/false, /*first*/true);
+        notifyJvmtiStart();
 
         // emit JFR event if enabled
         if (VirtualThreadStartEvent.isTurnedOn()) {
@@ -328,7 +328,7 @@ final class VirtualThread extends BaseVirtualThread {
 
             } finally {
                 // last unmount
-                notifyJvmtiUnmount(/*hide*/true, /*last*/true);
+                notifyJvmtiEnd();
                 unmount();
 
                 // final state
@@ -438,14 +438,14 @@ final class VirtualThread extends BaseVirtualThread {
     @ChangesCurrentThread
     private boolean yieldContinuation() {
         // unmount
-        notifyJvmtiUnmount(/*hide*/true, /*last*/false);
+        notifyJvmtiUnmount(/*hide*/true);
         unmount();
         try {
             return Continuation.yield(VTHREAD_SCOPE);
         } finally {
             // re-mount
             mount();
-            notifyJvmtiMount(/*hide*/false, /*first*/false);
+            notifyJvmtiMount(/*hide*/false);
         }
     }
 
@@ -462,7 +462,7 @@ final class VirtualThread extends BaseVirtualThread {
             setState(PARKED);
 
             // notify JVMTI that unmount has completed, thread is parked
-            notifyJvmtiUnmount(/*hide*/false, /*last*/false);
+            notifyJvmtiUnmount(/*hide*/false);
 
             // may have been unparked while parking
             if (parkPermit && compareAndSetState(PARKED, RUNNABLE)) {
@@ -478,7 +478,7 @@ final class VirtualThread extends BaseVirtualThread {
             setState(RUNNABLE);
 
             // notify JVMTI that unmount has completed, thread is runnable
-            notifyJvmtiUnmount(/*hide*/false, /*last*/false);
+            notifyJvmtiUnmount(/*hide*/false);
 
             // external submit if there are no tasks in the local task queue
             if (currentThread() instanceof CarrierThread ct && ct.getQueuedTaskCount() == 0) {
@@ -508,7 +508,7 @@ final class VirtualThread extends BaseVirtualThread {
         assert (state() == TERMINATED) && (carrierThread == null);
 
         if (executed) {
-            notifyJvmtiUnmount(/*hide*/false, /*last*/true);
+            notifyJvmtiUnmount(/*hide*/false);
         }
 
         // notify anyone waiting for this virtual thread to terminate
@@ -1086,11 +1086,19 @@ final class VirtualThread extends BaseVirtualThread {
 
     @IntrinsicCandidate
     @JvmtiMountTransition
-    private native void notifyJvmtiMount(boolean hide, boolean firstMount);
+    private native void notifyJvmtiMount(boolean hide);
 
     @IntrinsicCandidate
     @JvmtiMountTransition
-    private native void notifyJvmtiUnmount(boolean hide, boolean lastUnmount);
+    private native void notifyJvmtiUnmount(boolean hide);
+
+    @IntrinsicCandidate
+    @JvmtiMountTransition
+    private native void notifyJvmtiStart();
+
+    @IntrinsicCandidate
+    @JvmtiMountTransition
+    private native void notifyJvmtiEnd();
 
     @IntrinsicCandidate
     @JvmtiMountTransition

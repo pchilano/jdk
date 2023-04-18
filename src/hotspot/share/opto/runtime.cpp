@@ -113,6 +113,8 @@ address OptoRuntime::_register_finalizer_Java                     = nullptr;
 address OptoRuntime::_notify_jvmti_object_alloc                   = nullptr;
 address OptoRuntime::_notify_jvmti_mount                          = nullptr;
 address OptoRuntime::_notify_jvmti_unmount                        = nullptr;
+address OptoRuntime::_notify_jvmti_vthread_start                  = nullptr;
+address OptoRuntime::_notify_jvmti_vthread_end                    = nullptr;
 #endif
 
 ExceptionBlob* OptoRuntime::_exception_blob;
@@ -154,9 +156,11 @@ bool OptoRuntime::generate(ciEnv* env) {
   gen(env, _multianewarray5_Java           , multianewarray5_Type         , multianewarray5_C               ,    0 , true, false);
   gen(env, _multianewarrayN_Java           , multianewarrayN_Type         , multianewarrayN_C               ,    0 , true, false);
 #if INCLUDE_JVMTI
-  gen(env, _notify_jvmti_object_alloc      , notify_jvmti_object_alloc_Type, SharedRuntime::notify_jvmti_object_alloc, 0, true, false);
-  gen(env, _notify_jvmti_mount             , notify_jvmti_Type            , SharedRuntime::notify_jvmti_mount,   0 , true, false);
-  gen(env, _notify_jvmti_unmount           , notify_jvmti_Type            , SharedRuntime::notify_jvmti_unmount, 0 , true, false);
+  gen(env, _notify_jvmti_object_alloc      , notify_jvmti_object_alloc_Type, SharedRuntime::notify_jvmti_object_alloc,  0 , true, false);
+  gen(env, _notify_jvmti_mount             , notify_jvmti_Type            , SharedRuntime::notify_jvmti_mount,          0 , true, false);
+  gen(env, _notify_jvmti_unmount           , notify_jvmti_Type            , SharedRuntime::notify_jvmti_unmount,        0 , true, false);
+  gen(env, _notify_jvmti_vthread_start     , notify_jvmti_Type            , SharedRuntime::notify_jvmti_vthread_start,  0 , true, false);
+  gen(env, _notify_jvmti_vthread_end       , notify_jvmti_Type            , SharedRuntime::notify_jvmti_vthread_end,    0 , true, false);
 #endif
   gen(env, _complete_monitor_locking_Java  , complete_monitor_enter_Type  , SharedRuntime::complete_monitor_locking_C, 0, false, false);
   gen(env, _monitor_notify_Java            , monitor_notify_Type          , monitor_notify_C                ,    0 , false, false);
@@ -1673,11 +1677,10 @@ const TypeFunc *OptoRuntime::class_id_load_barrier_Type() {
 #if INCLUDE_JVMTI
 const TypeFunc *OptoRuntime::notify_jvmti_Type() {
   // create input type (domain)
-  const Type **fields = TypeTuple::fields(3);
+  const Type **fields = TypeTuple::fields(2);
   fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // VirtualThread oop
   fields[TypeFunc::Parms+1] = TypeInt::BOOL;        // jboolean
-  fields[TypeFunc::Parms+2] = TypeInt::BOOL;        // jboolean
-  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+3,fields);
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+2,fields);
 
   // no result type needed
   fields = TypeTuple::fields(1);

@@ -414,6 +414,8 @@
   template(loadClass_name,                            "loadClass")                                \
   template(notifyJvmtiMount_name,                     "notifyJvmtiMount")                         \
   template(notifyJvmtiUnmount_name,                   "notifyJvmtiUnmount")                       \
+  template(notifyJvmtiStart_name,                     "notifyJvmtiStart")                         \
+  template(notifyJvmtiEnd_name,                       "notifyJvmtiEnd")                           \
   template(notifyJvmtiHideFrames_name,                "notifyJvmtiHideFrames")                    \
   template(doYield_name,                              "doYield")                                  \
   template(enter_name,                                "enter")                                    \

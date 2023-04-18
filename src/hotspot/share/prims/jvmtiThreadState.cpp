@@ -512,7 +512,7 @@ JvmtiVTMSTransitionDisabler::finish_VTMS_transition(jthread vthread, bool is_mou
 }
 
 void
-JvmtiVTMSTransitionDisabler::VTMS_mount_begin(jobject vthread, jboolean first_mount) {
+JvmtiVTMSTransitionDisabler::VTMS_mount_begin(jobject vthread) {
   JavaThread* thread = JavaThread::current();
   assert(!thread->is_in_tmp_VTMS_transition(), "sanity check");
   assert(!thread->is_in_VTMS_transition(), "sanity check");
@@ -520,7 +520,7 @@ JvmtiVTMSTransitionDisabler::VTMS_mount_begin(jobject vthread, jboolean first_mo
 }
 
 void
-JvmtiVTMSTransitionDisabler::VTMS_mount_end(jobject vthread, jboolean first_mount) {
+JvmtiVTMSTransitionDisabler::VTMS_mount_end(jobject vthread, bool first_mount) {
   JavaThread* thread = JavaThread::current();
   oop vt = JNIHandles::resolve(vthread);
 
@@ -557,7 +557,7 @@ JvmtiVTMSTransitionDisabler::VTMS_mount_end(jobject vthread, jboolean first_moun
 }
 
 void
-JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(jobject vthread, jboolean last_unmount) {
+JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(jobject vthread, bool last_unmount) {
   JavaThread* thread = JavaThread::current();
   HandleMark hm(thread);
   Handle ct(thread, thread->threadObj());
@@ -591,13 +591,12 @@ JvmtiVTMSTransitionDisabler::VTMS_unmount_begin(jobject vthread, jboolean last_u
 }
 
 void
-JvmtiVTMSTransitionDisabler::VTMS_unmount_end(jobject vthread, jboolean last_unmount) {
+JvmtiVTMSTransitionDisabler::VTMS_unmount_end(jobject vthread) {
   JavaThread* thread = JavaThread::current();
   assert(thread->is_in_VTMS_transition(), "sanity check");
   assert(!thread->is_in_tmp_VTMS_transition(), "sanity check");
   finish_VTMS_transition(vthread, /* is_mount */ false);
 }
-
 
 //
 // Virtual Threads Suspend/Resume management
