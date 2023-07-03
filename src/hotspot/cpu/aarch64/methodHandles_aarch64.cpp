@@ -102,7 +102,7 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
   __ cbz(rmethod, L_no_such_method);
   __ verify_method_ptr(method);
 
-  if (!for_compiler_entry && JvmtiExport::can_post_interpreter_events()) {
+  if (JvmtiExport::can_post_interpreter_events()) {
     Label run_compiled_code;
     // JVMTI events, such as single-stepping, are implemented partly by avoiding running
     // compiled code in threads for which the event is enabled.  Check here for
@@ -110,8 +110,14 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
 
     __ ldrw(rscratch1, Address(rthread, JavaThread::interp_only_mode_offset()));
     __ cbzw(rscratch1, run_compiled_code);
-    __ ldr(rscratch1, Address(method, Method::interpreter_entry_offset()));
-    __ br(rscratch1);
+    if (!for_compiler_entry) {
+      __ ldr(rscratch1, Address(method, Method::interpreter_entry_offset()));
+      __ br(rscratch1);
+    } else {
+      __ ldr(rscratch1, Address(method, Method::adapter_offset()));
+      __ ldr(rscratch1, Address(rscratch1, AdapterHandlerEntry::c2i_entry_offset()));
+      __ br(rscratch1);
+    }
     __ BIND(run_compiled_code);
   }
 

@@ -147,7 +147,7 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
 
   Label L_no_such_method;
 
-  if (!for_compiler_entry && JvmtiExport::can_post_interpreter_events()) {
+  if (JvmtiExport::can_post_interpreter_events()) {
     // JVMTI events, such as single-stepping, are implemented partly
     // by avoiding running compiled code in threads for which the
     // event is enabled. Check here for interp_only_mode if these
@@ -162,8 +162,14 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
     __ z_ltgr(temp, method);
     __ z_bre(L_no_such_method);
 
-    __ z_lg(target, Address(method, Method::interpreter_entry_offset()));
-    __ z_br(target);
+    if (!for_compiler_entry) {
+      __ z_lg(target, Address(method, Method::interpreter_entry_offset()));
+      __ z_br(target);
+    } else {
+      __ z_lg(target, Address(method, Method::adapter_offset()));
+      __ z_lg(target, Address(target, AdapterHandlerEntry::c2i_entry_offset()));
+      __ z_br(target);
+    }
 
     __ bind(run_compiled_code);
   }

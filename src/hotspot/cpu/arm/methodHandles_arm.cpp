@@ -39,6 +39,7 @@
 #include "prims/jvmtiExport.hpp"
 #include "prims/methodHandles.hpp"
 #include "runtime/frame.inline.hpp"
+#include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "utilities/preserveException.hpp"
 
@@ -125,13 +126,18 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, bool for_comp
   // Note: JVMTI overhead seems small enough compared to invocation
   // cost and is not worth the complexity or code size overhead of
   // supporting several variants of each adapter.
-  if (!for_compiler_entry && (JvmtiExport::can_post_interpreter_events())) {
+  if (JvmtiExport::can_post_interpreter_events()) {
     // JVMTI events, such as single-stepping, are implemented partly by avoiding running
     // compiled code in threads for which the event is enabled.  Check here for
     // interp_only_mode if these events CAN be enabled.
     __ ldr_s32(Rtemp, Address(Rthread, JavaThread::interp_only_mode_offset()));
     __ cmp(Rtemp, 0);
-    __ ldr(PC, Address(Rmethod, Method::interpreter_entry_offset()), ne);
+    if (!for_compiler_entry) {
+      __ ldr(PC, Address(Rmethod, Method::interpreter_entry_offset()), ne);
+    } else {
+      __ ldr(Rtemp, Address(Rmethod, Method::adapter_offset()));
+      __ ldr(PC, Address(Rtemp, AdapterHandlerEntry::c2i_entry_offset()));
+    }
   }
   const ByteSize entry_offset = for_compiler_entry ? Method::from_compiled_offset() :
                                                      Method::from_interpreted_offset();

@@ -658,6 +658,8 @@ class AdapterHandlerEntry : public CHeapObj<mtCode> {
 
   AdapterFingerPrint* fingerprint() const { return _fingerprint; }
 
+  static ByteSize c2i_entry_offset() { return byte_offset_of(AdapterHandlerEntry, _c2i_entry); }
+
 #ifdef ASSERT
   // Used to verify that code generated for shared adapters is equivalent
   void save_code   (unsigned char* code, int length);

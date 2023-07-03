@@ -1272,12 +1272,15 @@ address Method::make_adapters(const methodHandle& mh, TRAPS) {
 // safepoints so that the nmethod or adapter that it points to is still
 // live and valid, and no switch to interpreted only mode happens after
 // we already returned the compiled entry point.
-// TODO: _linkToNative doesn't have an interpreted version so we always
-// return the compiled code entry point.
+// For method handle intrinsics we always return the compiled entry point
+// to avoid issues where stack is changed in the c2i but we hit an implicit
+// null check before the callee's interpreted frame is created. For these
+// methods we will check for interpreted only mode before jumping to the
+// method handle target (see MethodHandles::jump_from_method_handle).
 address Method::from_compiled_entry(bool is_interp_only_mode) const {
   debug_only(NoSafepointVerifier nsv;)
   address target = nullptr;
-  if (!is_interp_only_mode || (intrinsic_id() == vmIntrinsics::_linkToNative)) {
+  if (!is_interp_only_mode || is_method_handle_intrinsic()) {
     target = _from_compiled_entry;
   } else {
     target = get_c2i_entry();

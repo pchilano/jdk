@@ -130,7 +130,7 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
   assert(method == R19_method, "interpreter calling convention");
   assert_different_registers(method, target, temp);
 
-  if (!for_compiler_entry && JvmtiExport::can_post_interpreter_events()) {
+  if (JvmtiExport::can_post_interpreter_events()) {
     Label run_compiled_code;
     // JVMTI events, such as single-stepping, are implemented partly by avoiding running
     // compiled code in threads for which the event is enabled.  Check here for
@@ -141,9 +141,16 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
     // Null method test is replicated below in compiled case.
     __ cmplwi(CCR0, R19_method, 0);
     __ beq(CCR0, L_no_such_method);
-    __ ld(target, in_bytes(Method::interpreter_entry_offset()), R19_method);
-    __ mtctr(target);
-    __ bctr();
+    if (!for_compiler_entry) {
+      __ ld(target, in_bytes(Method::interpreter_entry_offset()), R19_method);
+      __ mtctr(target);
+      __ bctr();
+    } else {
+      __ ld(target, in_bytes(Method::adapter_offset()), R19_method);
+      __ ld(target, in_bytes(AdapterHandlerEntry::c2i_entry_offset()), target);
+      __ mtctr(target);
+      __ bctr();
+    }
     __ BIND(run_compiled_code);
   }
 

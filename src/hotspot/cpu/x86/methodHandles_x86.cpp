@@ -135,7 +135,7 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
 
   __ verify_method_ptr(method);
 
-  if (!for_compiler_entry && JvmtiExport::can_post_interpreter_events()) {
+  if (JvmtiExport::can_post_interpreter_events()) {
     Label run_compiled_code;
     // JVMTI events, such as single-stepping, are implemented partly by avoiding running
     // compiled code in threads for which the event is enabled.  Check here for
@@ -150,7 +150,13 @@ void MethodHandles::jump_from_method_handle(MacroAssembler* _masm, Register meth
     // Is a cmpl faster?
     __ cmpb(Address(rthread, JavaThread::interp_only_mode_offset()), 0);
     __ jccb(Assembler::zero, run_compiled_code);
-    __ jmp(Address(method, Method::interpreter_entry_offset()));
+    if (!for_compiler_entry) {
+      __ jmp(Address(method, Method::interpreter_entry_offset()));
+    } else {
+      __ movptr(temp, Address(method, Method::adapter_offset()));
+      __ movptr(temp, Address(temp, AdapterHandlerEntry::c2i_entry_offset()));
+      __ jmp(temp);
+    }
     __ BIND(run_compiled_code);
   }
 

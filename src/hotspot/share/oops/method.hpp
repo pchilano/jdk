@@ -670,6 +670,7 @@ public:
   static ByteSize native_function_offset()       { return in_ByteSize(sizeof(Method));                 }
   static ByteSize from_interpreted_offset()      { return byte_offset_of(Method, _from_interpreted_entry ); }
   static ByteSize interpreter_entry_offset()     { return byte_offset_of(Method, _i2i_entry ); }
+  static ByteSize adapter_offset()               { return byte_offset_of(Method, _adapter); }
   static ByteSize signature_handler_offset()     { return in_ByteSize(sizeof(Method) + wordSize);      }
   static ByteSize itable_index_offset()          { return byte_offset_of(Method, _vtable_index ); }
 
