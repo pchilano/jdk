@@ -65,6 +65,7 @@
 #include "runtime/frame.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/init.hpp"
+#include "runtime/javaThread.inline.hpp"
 #include "runtime/orderAccess.hpp"
 #include "runtime/relocator.hpp"
 #include "runtime/safepointVerifiers.hpp"
@@ -1277,10 +1278,16 @@ address Method::make_adapters(const methodHandle& mh, TRAPS) {
 // null check before the callee's interpreted frame is created. For these
 // methods we will check for interpreted only mode before jumping to the
 // method handle target (see MethodHandles::jump_from_method_handle).
+// We also always return the compiled entry point for doYield() since there
+// is no interpreted version. This is a leaf method that is not even
+// freezed so it doesn't matter. Because of the VTMS transition disabler
+// this case should only materialize for plain continuations.
 address Method::from_compiled_entry(bool is_interp_only_mode) const {
+  assert(!is_interp_only_mode || !is_continuation_native_intrinsic() || !JavaThread::current()->is_vthread_mounted(),
+         "switch to interp only mode when resolving enterSpecial/doYield in virtual thread case");
   debug_only(NoSafepointVerifier nsv;)
   address target = nullptr;
-  if (!is_interp_only_mode || is_method_handle_intrinsic()) {
+  if (!is_interp_only_mode || is_method_handle_intrinsic() || is_continuation_yield_intrinsic()) {
     target = _from_compiled_entry;
   } else {
     target = get_c2i_entry();

@@ -1421,7 +1421,33 @@ static void gen_continuation_enter(MacroAssembler* masm,
     __ movptr(c_rarg1, Address(rsp, Interpreter::stackElementSize*2));
     __ movl(c_rarg2,   Address(rsp, Interpreter::stackElementSize*1));
     __ movl(c_rarg3,   Address(rsp, Interpreter::stackElementSize*0));
-    __ andptr(rsp, -16); // Ensure compiled code always sees stack at proper alignment
+
+    // Continuation.run() frame could be compiled if the change to interpreter mode happened
+    // while resolving enterspecial (should happen only with plain Continuations). In that case
+    // we need to restore the stack pointer to the sender sp, otherwise nobody will cleanup
+    // the extra stack space added in the c2i, since this frame is also compiled. We do it
+    // unconditionally because if caller is interpreted then sender sp is already equal to
+    // current sp and this is effectively a no-op.
+#ifdef ASSERT
+    Label L_caller_interpreted, L_ok;
+    range_check(masm, rax, rscratch1, Interpreter::code()->code_start(),
+                Interpreter::code()->code_end(), L_caller_interpreted);
+    __ check_stack_alignment(r13, "sender sp should be aligned");
+    __ testptr(reg_is_virtual, reg_is_virtual);
+    __ jcc(Assembler::zero, L_ok);
+    __ stop("switch to interp only mode while resolving enterSpecial in virtual thread case");
+    __ bind(L_caller_interpreted);
+    __ cmpptr(rsp, r13);
+    __ jcc(Assembler::equal, L_ok);
+    __ stop("Coming from interpreted frame but sender sp doesn't match current sp");
+    __ bind(L_ok);
+#endif
+    __ mov(rsp, r13);
+
+    // Ensure compiled code always sees stack at proper alignment. Only needed when caller
+    // frame is interpreted.
+    __ andptr(rsp, -16);
+
     __ push(rax); // return address
     __ push_cont_fastpath();
 

@@ -1094,6 +1094,15 @@ static void gen_continuation_enter(MacroAssembler* masm,
     __ ldr(c_rarg1, Address(esp, Interpreter::stackElementSize*2));
     __ ldr(c_rarg2, Address(esp, Interpreter::stackElementSize*1));
     __ ldr(c_rarg3, Address(esp, Interpreter::stackElementSize*0));
+
+    // Continuation.run() frame could be compiled if the change to interpreter mode happened
+    // while resolving enterspecial (should happen only with plain Continuations). In that case
+    // we need to restore the stack pointer to the sender sp, otherwise nobody will cleanup
+    // the extra stack space added in the c2i, since this frame is also compiled. We do it
+    // unconditionally because if caller is interpreted then sender sp is already equal to
+    // current sp and this is effectively a no-op.
+    __ mov(sp, r19_sender_sp);
+
     __ push_cont_fastpath(rthread);
 
     __ enter();
