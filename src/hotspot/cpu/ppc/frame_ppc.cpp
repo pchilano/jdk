@@ -264,6 +264,10 @@ intptr_t* frame::interpreter_frame_sender_sp() const {
   return (intptr_t*)at(ijava_idx(sender_sp));
 }
 
+void frame::set_interpreter_frame_sender_sp(intptr_t* sender_sp) {
+  Unimplemented();
+}
+
 void frame::patch_pc(Thread* thread, address pc) {
   assert(_cb == CodeCache::find_blob(pc), "unexpected pc");
   address* pc_addr = (address*)&(own_abi()->lr);

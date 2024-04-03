@@ -194,6 +194,15 @@ inline void frame::set_unextended_sp(intptr_t* value) {
   Unimplemented();
 }
 
+inline intptr_t* frame::interpreter_frame_sender_sp() const {
+  Unimplemented();
+  return nullptr;
+}
+
+inline void frame::set_interpreter_frame_sender_sp(intptr_t* sender_sp) {
+  Unimplemented();
+}
+
 inline int frame::offset_unextended_sp() const {
   Unimplemented();
   return 0;

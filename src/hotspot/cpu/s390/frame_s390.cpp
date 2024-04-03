@@ -195,6 +195,10 @@ intptr_t* frame::interpreter_frame_sender_sp() const {
   return sender_sp();
 }
 
+void frame::set_interpreter_frame_sender_sp(intptr_t* sender_sp) {
+  Unimplemented();
+}
+
 frame frame::sender_for_entry_frame(RegisterMap *map) const {
   assert(map != nullptr, "map must be set");
   // Java frame called from C. Skip all C frames and return top C

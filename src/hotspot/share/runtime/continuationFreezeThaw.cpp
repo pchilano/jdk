@@ -1242,7 +1242,6 @@ NOINLINE freeze_result FreezeBase::recurse_freeze_stub_frame(frame& f, frame& ca
 
 NOINLINE void FreezeBase::finish_freeze(const frame& f, const frame& top) {
   stackChunkOop chunk = _cont.tail();
-  assert(chunk->to_offset(top.sp()) <= chunk->sp(), "");
 
   LogTarget(Trace, continuations) lt;
   if (lt.develop_is_enabled()) {

@@ -2965,13 +2965,33 @@ JRT_LEAF(intptr_t*, SharedRuntime::OSR_migration_begin( JavaThread *current) )
   }
   assert(i - max_locals == active_monitor_count*2, "found the expected number of monitors");
 
-  RegisterMap map(current,
-                  RegisterMap::UpdateMap::skip,
-                  RegisterMap::ProcessFrames::include,
-                  RegisterMap::WalkContinuation::skip);
-  frame sender = fr.sender(&map);
-  if (sender.is_interpreted_frame()) {
-    current->push_cont_fastpath(sender.sp());
+  if (current->last_continuation() != nullptr) {
+    RegisterMap map(current,
+                    RegisterMap::UpdateMap::skip,
+                    RegisterMap::ProcessFrames::skip,
+                    RegisterMap::WalkContinuation::skip);
+    frame sender = fr.sender(&map);
+    if (sender.is_interpreted_frame()) {
+      current->push_cont_fastpath(sender.sp());
+    } else if (Continuation::is_continuation_enterSpecial(sender) &&
+               moop->num_stack_arg_slots() > 0) {
+      // The freeze/thaw code assumes that compiled frames for methods
+      // where num_stack_arg_slots() > 0 will have the arguments set
+      // up in the stack above the metadata at the bottom of the frame.
+      // For OSR frames we do not add space for this argument area when
+      // popping the interpreter frame. All parameters needed will be
+      // fetched from buf and stored inside the frame. Since this is the
+      // bottom-most frame currently in the stack this will cause issues
+      // if we later freeze. To fix it we modify sender_sp so that when
+      // popping the interpreter frame we leave room for the argument area
+      // as if we had originally thawed a normal compiled frame.
+      int args_size = moop->num_stack_arg_slots() * VMRegImpl::stack_slot_size >> LogBytesPerWord;
+      assert(fr.interpreter_frame_sender_sp() == current->last_continuation()->entry_sp(), "wrong interpreter_frame_sender_sp");
+      intptr_t* new_int_frame_sender_sp = align_down(current->last_continuation()->entry_sp() - args_size, frame::frame_alignment);
+      fr.set_interpreter_frame_sender_sp(new_int_frame_sender_sp);
+      current->last_continuation()->set_argsize(args_size);
+      current->set_cont_fastpath(nullptr);
+    }
   }
 
   return buf;
