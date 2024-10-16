@@ -24,8 +24,10 @@
  */
 package java.lang;
 
+import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -41,8 +43,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import jdk.internal.event.VirtualThreadEndEvent;
-import jdk.internal.event.VirtualThreadPinnedEvent;
 import jdk.internal.event.VirtualThreadStartEvent;
 import jdk.internal.event.VirtualThreadSubmitFailedEvent;
 import jdk.internal.misc.CarrierThread;
@@ -68,9 +70,8 @@ import static java.util.concurrent.TimeUnit.*;
 final class VirtualThread extends BaseVirtualThread {
     private static final Unsafe U = Unsafe.getUnsafe();
     private static final ContinuationScope VTHREAD_SCOPE = new ContinuationScope("VirtualThreads");
-    private static final ForkJoinPool DEFAULT_SCHEDULER = createDefaultScheduler();
+    private static final Executor DEFAULT_SCHEDULER = createDefaultScheduler();
     private static final ScheduledExecutorService[] DELAYED_TASK_SCHEDULERS = createDelayedTaskSchedulers();
-    private static final int TRACE_PINNING_MODE = tracePinningMode();
 
     private static final long STATE = U.objectFieldOffset(VirtualThread.class, "state");
     private static final long PARK_PERMIT = U.objectFieldOffset(VirtualThread.class, "parkPermit");
@@ -112,6 +113,16 @@ final class VirtualThread extends BaseVirtualThread {
      *   BLOCKED -> UNBLOCKED      // unblocked, may be scheduled to continue
      * UNBLOCKED -> RUNNING        // continue execution after blocked on monitor enter
      *
+     *   RUNNING -> WAITING        // transitional state during wait on monitor
+     *   WAITING -> WAITED         // waiting on monitor
+     *    WAITED -> BLOCKED        // notified, waiting to be unblocked by monitor owner
+     *    WAITED -> UNBLOCKED      // timed-out/interrupted
+     *
+     *       RUNNING -> TIMED_WAITING   // transition state during timed-waiting on monitor
+     * TIMED_WAITING -> TIMED_WAITED    // timed-waiting on monitor
+     *  TIMED_WAITED -> BLOCKED         // notified, waiting to be unblocked by monitor owner
+     *  TIMED_WAITED -> UNBLOCKED       // timed-out/interrupted
+     *
      *  RUNNING -> YIELDING        // Thread.yield
      * YIELDING -> YIELDED         // cont.yield successful, may be scheduled to continue
      * YIELDING -> RUNNING         // cont.yield failed
@@ -139,6 +150,12 @@ final class VirtualThread extends BaseVirtualThread {
     private static final int BLOCKED   = 13;        // unmounted
     private static final int UNBLOCKED = 14;        // unmounted but runnable
 
+    // monitor wait/timed-wait
+    private static final int WAITING       = 15;
+    private static final int WAIT          = 16;    // waiting in Object.wait
+    private static final int TIMED_WAITING = 17;
+    private static final int TIMED_WAIT    = 18;    // waiting in timed-Object.wait
+
     private static final int TERMINATED = 99;  // final state
 
     // can be suspended from scheduling when unmounted
@@ -156,18 +173,32 @@ final class VirtualThread extends BaseVirtualThread {
     // next virtual thread on the list of virtual threads waiting to be unblocked
     private volatile VirtualThread next;
 
+    // notified by Object.notify/notifyAll while waiting in Object.wait
+    private volatile boolean notified;
+
+    // timed-wait support
+    private long waitTimeout;
+    private byte timedWaitNonce;
+    private volatile Future<?> waitTimeoutTask;
+
     // carrier thread when mounted, accessed by VM
     private volatile Thread carrierThread;
 
     // termination object when joining, created lazily if needed
     private volatile CountDownLatch termination;
 
-
     /**
      * Returns the default scheduler.
      */
     static Executor defaultScheduler() {
         return DEFAULT_SCHEDULER;
+    }
+
+    /**
+     * Returns a stream of the delayed task schedulers used to support timed operations.
+     */
+    static Stream<ScheduledExecutorService> delayedTaskSchedulers() {
+        return Arrays.stream(DELAYED_TASK_SCHEDULERS);
     }
 
     /**
@@ -217,18 +248,8 @@ final class VirtualThread extends BaseVirtualThread {
         }
         @Override
         protected void onPinned(Continuation.Pinned reason) {
-            if (TRACE_PINNING_MODE > 0) {
-                boolean printAll = (TRACE_PINNING_MODE == 1);
-                VirtualThread vthread = (VirtualThread) Thread.currentThread();
-                int oldState = vthread.state();
-                try {
-                    // avoid printing when in transition states
-                    vthread.setState(RUNNING);
-                    PinnedThreadPrinter.printStackTrace(System.out, reason, printAll);
-                } finally {
-                    vthread.setState(oldState);
-                }
-            }
+            // emit JFR event
+            virtualThreadPinnedEvent(reason.reasonCode(), reason.reasonString());
         }
         private static Runnable wrap(VirtualThread vthread, Runnable task) {
             return new Runnable() {
@@ -239,6 +260,13 @@ final class VirtualThread extends BaseVirtualThread {
             };
         }
     }
+
+    /**
+     * jdk.VirtualThreadPinned is emitted by HotSpot VM when pinned. Call into VM to
+     * emit event to avoid having a JFR event in Java with the same name (but different ID)
+     * to events emitted by the VM.
+     */
+    private static native void virtualThreadPinnedEvent(int reason, String reasonString);
 
     /**
      * Runs or continues execution on the current thread. The virtual thread is mounted
@@ -608,6 +636,44 @@ final class VirtualThread extends BaseVirtualThread {
             return;
         }
 
+        // Object.wait
+        if (s == WAITING || s == TIMED_WAITING) {
+            byte nonce;
+            int newState;
+            if (s == WAITING) {
+                nonce = 0;  // not used
+                setState(newState = WAIT);
+            } else {
+                // synchronize with timeout task (previous timed-wait may be running)
+                synchronized (timedWaitLock()) {
+                    nonce = ++timedWaitNonce;
+                    setState(newState = TIMED_WAIT);
+                }
+            }
+
+            // may have been notified while in transition to wait state
+            if (notified && compareAndSetState(newState, BLOCKED)) {
+                // may have even been unblocked already
+                if (blockPermit && compareAndSetState(BLOCKED, UNBLOCKED)) {
+                    submitRunContinuation();
+                }
+                return;
+            }
+
+            // may have been interrupted while in transition to wait state
+            if (interrupted && compareAndSetState(newState, UNBLOCKED)) {
+                submitRunContinuation();
+                return;
+            }
+
+            // schedule wakeup
+            if (newState == TIMED_WAIT) {
+                assert waitTimeout > 0;
+                waitTimeoutTask = schedule(() -> waitTimeoutExpired(nonce), waitTimeout, MILLISECONDS);
+            }
+            return;
+        }
+
         assert false;
     }
 
@@ -786,14 +852,6 @@ final class VirtualThread extends BaseVirtualThread {
     private void parkOnCarrierThread(boolean timed, long nanos) {
         assert state() == RUNNING;
 
-        VirtualThreadPinnedEvent event;
-        try {
-            event = new VirtualThreadPinnedEvent();
-            event.begin();
-        } catch (OutOfMemoryError e) {
-            event = null;
-        }
-
         setState(timed ? TIMED_PINNED : PINNED);
         try {
             if (!parkPermit) {
@@ -809,14 +867,6 @@ final class VirtualThread extends BaseVirtualThread {
 
         // consume parking permit
         setParkPermit(false);
-
-        if (event != null) {
-            try {
-                event.commit();
-            } catch (OutOfMemoryError e) {
-                // ignore
-            }
-        }
     }
 
     /**
@@ -896,6 +946,58 @@ final class VirtualThread extends BaseVirtualThread {
         blockPermit = true;
         if (state() == BLOCKED && compareAndSetState(BLOCKED, UNBLOCKED)) {
             submitRunContinuation();
+        }
+    }
+
+    /**
+     * Invoked by timer thread when wait timeout for virtual thread has expired.
+     * If the virtual thread is in timed-wait then this method will unblock the thread
+     * and submit its task so that it continues and attempts to reenter the monitor.
+     * This method does nothing if the thread has been woken by notify or interrupt.
+     */
+    private void waitTimeoutExpired(byte nounce) {
+        assert !Thread.currentThread().isVirtual();
+        for (;;) {
+            boolean unblocked = false;
+            synchronized (timedWaitLock()) {
+                if (nounce != timedWaitNonce) {
+                    // this timeout task is for a past timed-wait
+                    return;
+                }
+                int s = state();
+                if (s == TIMED_WAIT) {
+                    unblocked = compareAndSetState(TIMED_WAIT, UNBLOCKED);
+                } else if (s != (TIMED_WAIT | SUSPENDED)) {
+                    // notified or interrupted, no longer waiting
+                    return;
+                }
+            }
+            if (unblocked) {
+                submitRunContinuation();
+                return;
+            }
+            // need to retry when thread is suspended in time-wait
+            Thread.yield();
+        }
+    }
+
+    /**
+     * Invoked by Object.wait to cancel the wait timer.
+     */
+    void cancelWaitTimeout() {
+        assert Thread.currentThread() == this;
+        Future<?> timeoutTask = this.waitTimeoutTask;
+        if (timeoutTask != null) {
+            // Pin the continuation to prevent the virtual thread from unmounting
+            // when there is contention removing the task. This avoids deadlock that
+            // could arise due to carriers and virtual threads contending for a
+            // lock on the delay queue.
+            Continuation.pin();
+            try {
+                timeoutTask.cancel(false);
+            } finally {
+                Continuation.unpin();
+            }
         }
     }
 
@@ -1028,6 +1130,13 @@ final class VirtualThread extends BaseVirtualThread {
 
             // make available parking permit, unpark thread if parked
             unpark();
+
+            // if thread is waiting in Object.wait then schedule to try to reenter
+            int s = state();
+            if ((s == WAIT || s == TIMED_WAIT) && compareAndSetState(s, UNBLOCKED)) {
+                submitRunContinuation();
+            }
+
         } else {
             interrupted = true;
             carrierThread.setInterrupt();
@@ -1095,14 +1204,18 @@ final class VirtualThread extends BaseVirtualThread {
                 return Thread.State.RUNNABLE;
             case PARKING:
             case TIMED_PARKING:
+            case WAITING:
+            case TIMED_WAITING:
             case YIELDING:
                 // runnable, in transition
                 return Thread.State.RUNNABLE;
             case PARKED:
             case PINNED:
+            case WAIT:
                 return Thread.State.WAITING;
             case TIMED_PARKED:
             case TIMED_PINNED:
+            case TIMED_WAIT:
                 return Thread.State.TIMED_WAITING;
             case BLOCKING:
             case BLOCKED:
@@ -1152,13 +1265,13 @@ final class VirtualThread extends BaseVirtualThread {
             case RUNNING, PINNED, TIMED_PINNED -> {
                 return null;   // mounted
             }
-            case PARKED, TIMED_PARKED, BLOCKED -> {
+            case PARKED, TIMED_PARKED, BLOCKED, WAIT, TIMED_WAIT -> {
                 // unmounted, not runnable
             }
             case UNPARKED, UNBLOCKED, YIELDED -> {
                 // unmounted, runnable
             }
-            case PARKING, TIMED_PARKING, BLOCKING, YIELDING -> {
+            case PARKING, TIMED_PARKING, BLOCKING, YIELDING, WAITING, TIMED_WAITING -> {
                 return null;  // in transition
             }
             default -> throw new InternalError("" + initialState);
@@ -1190,6 +1303,11 @@ final class VirtualThread extends BaseVirtualThread {
             case BLOCKED -> {
                 // resubmit if unblocked while suspended
                 yield blockPermit && compareAndSetState(BLOCKED, UNBLOCKED);
+            }
+            case WAIT, TIMED_WAIT -> {
+                // resubmit if notified or interrupted while waiting (Object.wait)
+                // waitTimeoutExpired will retry if the timed expired when suspended
+                yield (notified || interrupted) && compareAndSetState(initialState, UNBLOCKED);
             }
             default -> throw new InternalError();
         };
@@ -1286,6 +1404,14 @@ final class VirtualThread extends BaseVirtualThread {
     }
 
     /**
+     * Returns a lock object to coordinating timed-wait setup and timeout handling.
+     */
+    private Object timedWaitLock() {
+        // use this object for now to avoid the overhead of introducing another lock
+        return runContinuation;
+    }
+
+    /**
      * Disallow the current thread be suspended or preempted.
      */
     private void disableSuspendAndPreempt() {
@@ -1369,16 +1495,42 @@ final class VirtualThread extends BaseVirtualThread {
 
         // ensure VTHREAD_GROUP is created, may be accessed by JVMTI
         var group = Thread.virtualThreadGroup();
+    }
 
-        // ensure VirtualThreadPinnedEvent is loaded/initialized
-        U.ensureClassInitialized(VirtualThreadPinnedEvent.class);
+    /**
+     * Creates the default scheduler.
+     * If the system property {@code jdk.virtualThreadScheduler.implClass} is set then
+     * its value is the name of a class that implements java.util.concurrent.Executor.
+     * The class is public in an exported package, has a public no-arg constructor,
+     * and is visible to the system class loader.
+     * If the system property is not set then the default scheduler will be a
+     * ForkJoinPool instance.
+     */
+    private static Executor createDefaultScheduler() {
+        String propName = "jdk.virtualThreadScheduler.implClass";
+        String propValue = GetPropertyAction.privilegedGetProperty(propName);
+        if (propValue != null) {
+            try {
+                Class<?> clazz = Class.forName(propValue, true,
+                        ClassLoader.getSystemClassLoader());
+                Constructor<?> ctor = clazz.getConstructor();
+                var scheduler = (Executor) ctor.newInstance();
+                System.err.println("""
+                    WARNING: Using custom scheduler, this is an experimental feature.""");
+                return scheduler;
+            } catch (Exception ex) {
+                throw new Error(ex);
+            }
+        } else {
+            return createDefaultForkJoinPoolScheduler();
+        }
     }
 
     /**
      * Creates the default ForkJoinPool scheduler.
      */
     @SuppressWarnings("removal")
-    private static ForkJoinPool createDefaultScheduler() {
+    private static ForkJoinPool createDefaultForkJoinPoolScheduler() {
         ForkJoinWorkerThreadFactory factory = pool -> {
             PrivilegedAction<ForkJoinWorkerThread> pa = () -> new CarrierThread(pool);
             return AccessController.doPrivileged(pa);
@@ -1449,22 +1601,6 @@ final class VirtualThread extends BaseVirtualThread {
             schedulers[i] = stpe;
         }
         return schedulers;
-    }
-
-    /**
-     * Reads the value of the jdk.tracePinnedThreads property to determine if stack
-     * traces should be printed when a carrier thread is pinned when a virtual thread
-     * attempts to park.
-     */
-    private static int tracePinningMode() {
-        String propValue = GetPropertyAction.privilegedGetProperty("jdk.tracePinnedThreads");
-        if (propValue != null) {
-            if (propValue.length() == 0 || "full".equalsIgnoreCase(propValue))
-                return 1;
-            if ("short".equalsIgnoreCase(propValue))
-                return 2;
-        }
-        return 0;
     }
 
     /**
