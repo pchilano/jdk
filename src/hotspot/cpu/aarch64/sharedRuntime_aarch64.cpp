@@ -1166,12 +1166,14 @@ static void gen_continuation_enter(MacroAssembler* masm,
 
   __ bind(call_thaw);
 
+  ContinuationEntry::_thaw_call_pc_offset = __ pc() - start;
   __ rt_call(CAST_FROM_FN_PTR(address, StubRoutines::cont_thaw()));
   oop_maps->add_gc_map(__ pc() - start, map->deep_copy());
   ContinuationEntry::_return_pc_offset = __ pc() - start;
   __ post_call_nop();
 
   __ bind(exit);
+  ContinuationEntry::_cleanup_offset = __ pc() - start;
   continuation_enter_cleanup(masm);
   __ leave();
   __ ret(lr);
@@ -1266,6 +1268,10 @@ static void gen_continuation_yield(MacroAssembler* masm,
 
     OopMap* map = new OopMap(framesize, 1);
     oop_maps->add_gc_map(the_pc - start, map);
+}
+
+void SharedRuntime::continuation_enter_cleanup(MacroAssembler* masm) {
+  ::continuation_enter_cleanup(masm);
 }
 
 static void gen_special_dispatch(MacroAssembler* masm,
@@ -1734,11 +1740,20 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   }
 
   // Change state to native (we save the return address in the thread, since it might not
-  // be pushed on the stack when we do a stack traversal).
-  // We use the same pc/oopMap repeatedly when we call out
+  // be pushed on the stack when we do a stack traversal). It is enough that the pc()
+  // points into the right code segment. It does not have to be the correct return pc.
+  // We use the same pc/oopMap repeatedly when we call out.
 
   Label native_return;
-  __ set_last_Java_frame(sp, noreg, native_return, rscratch1);
+  if (LockingMode != LM_LEGACY && method->is_object_wait0()) {
+    // For convenience we use the pc we want to resume to in case of preemption on Object.wait.
+    __ set_last_Java_frame(sp, noreg, native_return, rscratch1);
+  } else {
+    intptr_t the_pc = (intptr_t) __ pc();
+    oop_maps->add_gc_map(the_pc - start, map);
+
+    __ set_last_Java_frame(sp, noreg, __ pc(), rscratch1);
+  }
 
   Label dtrace_method_entry, dtrace_method_entry_done;
   if (DTraceMethodProbes) {
@@ -1841,11 +1856,6 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
   __ rt_call(native_func);
 
-  __ bind(native_return);
-
-  intptr_t return_pc = (intptr_t) __ pc();
-  oop_maps->add_gc_map(return_pc - start, map);
-
   // Verify or restore cpu control state after JNI call
   __ restore_cpu_control_state_after_jni(rscratch1, rscratch2);
 
@@ -1903,6 +1913,18 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   __ lea(rscratch2, Address(rthread, JavaThread::thread_state_offset()));
   __ stlrw(rscratch1, rscratch2);
   __ bind(after_transition);
+
+  if (LockingMode != LM_LEGACY && method->is_object_wait0()) {
+    // Check preemption for Object.wait()
+    __ ldr(rscratch1, Address(rthread, JavaThread::preempt_alternate_return_offset()));
+    __ cbz(rscratch1, native_return);
+    __ str(zr, Address(rthread, JavaThread::preempt_alternate_return_offset()));
+    __ br(rscratch1);
+    __ bind(native_return);
+
+    intptr_t the_pc = (intptr_t) __ pc();
+    oop_maps->add_gc_map(the_pc - start, map);
+  }
 
   Label reguard;
   Label reguard_done;
@@ -2021,7 +2043,11 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     __ mov(c_rarg2, rthread);
 
     // Not a leaf but we have last_Java_frame setup as we want
+    // Force freeze slow path in case we try to preempt. We will pin the
+    // vthread to the carrier (see FreezeBase::recurse_freeze_native_frame()).
+    __ push_cont_fastpath();
     __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::complete_monitor_locking_C), 3);
+    __ pop_cont_fastpath();
     restore_args(masm, total_c_args, c_arg, out_regs);
 
 #ifdef ASSERT
@@ -2561,6 +2587,10 @@ uint SharedRuntime::out_preserve_stack_slots() {
   return 0;
 }
 
+
+VMReg SharedRuntime::thread_register() {
+  return rthread->as_VMReg();
+}
 
 //------------------------------generate_handler_blob------
 //

@@ -59,3 +59,17 @@ gc/arguments/TestNewSizeFlags.java 8299116 macosx-aarch64
 runtime/cds/appcds/DumpRuntimeClassesTest.java 8341452 generic-all
 
 runtime/condy/escapeAnalysis/TestEscapeCondy.java 8339694 generic-all
+
+############################################################################
+
+# Loom, fibers branch
+
+gc/g1/plab/TestPLABPromotion.java                                       8278126 generic-all
+gc/g1/plab/TestPLABResize.java                                          8278126 generic-all
+
+gc/stringdedup/TestStringDeduplicationInterned.java#G1                  8278127 generic-all
+gc/stringdedup/TestStringDeduplicationInterned.java#Parallel            8278127 generic-all
+gc/stringdedup/TestStringDeduplicationInterned.java#Serial              8278127 generic-all
+gc/stringdedup/TestStringDeduplicationInterned.java#Z                   8278127 generic-all
+
+gc/z/TestGarbageCollectorMXBean.java                                    8278129 generic-all

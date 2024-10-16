@@ -28,7 +28,9 @@
 #include "memory/allocation.hpp"
 #include "memory/padded.hpp"
 #include "oops/markWord.hpp"
+#include "oops/oopHandle.hpp"
 #include "oops/weakHandle.hpp"
+#include "runtime/javaThread.hpp"
 #include "runtime/perfDataTypes.hpp"
 #include "utilities/checkedCast.hpp"
 
@@ -36,6 +38,7 @@ class ObjectMonitor;
 class ObjectMonitorContentionMark;
 class ParkEvent;
 class BasicLock;
+class ContinuationWrapper;
 
 // ObjectWaiter serves as a "proxy" or surrogate thread.
 // TODO-FIXME: Eliminate ObjectWaiter and use the thread-specific
@@ -43,20 +46,35 @@ class BasicLock;
 // knows about ObjectWaiters, so we'll have to reconcile that code.
 // See next_waiter(), first_waiter(), etc.
 
-class ObjectWaiter : public StackObj {
+class ObjectWaiter : public CHeapObj<mtThread> {
  public:
-  enum TStates { TS_UNDEF, TS_READY, TS_RUN, TS_WAIT, TS_ENTER, TS_CXQ };
+  enum TStates : uint8_t { TS_UNDEF, TS_READY, TS_RUN, TS_WAIT, TS_ENTER, TS_CXQ };
   ObjectWaiter* volatile _next;
   ObjectWaiter* volatile _prev;
-  JavaThread*   _thread;
-  uint64_t      _notifier_tid;
-  ParkEvent *   _event;
-  volatile int  _notified;
+  JavaThread*     _thread;
+  OopHandle      _vthread;
+  ObjectMonitor* _monitor;
+  uint64_t  _notifier_tid;
+  int         _recursions;
   volatile TStates TState;
-  bool          _active;           // Contention monitoring is enabled
+  volatile bool _notified;
+  bool           _is_wait;
+  bool        _at_reenter;
+  bool       _interrupted;
+  bool            _active;    // Contention monitoring is enabled
  public:
   ObjectWaiter(JavaThread* current);
-
+  ObjectWaiter(oop vthread, ObjectMonitor* mon);
+  ~ObjectWaiter();
+  JavaThread* thread() { return _thread; }
+  bool is_vthread()    { return _thread == nullptr; }
+  uint8_t state()      { return TState; }
+  ObjectMonitor* monitor() { return _monitor; }
+  bool is_monitorenter()   { return !_is_wait; }
+  bool is_wait()           { return _is_wait; }
+  bool notified()          { return _notified; }
+  bool at_reenter()        { return _at_reenter; }
+  oop vthread();
   void wait_reenter_begin(ObjectMonitor *mon);
   void wait_reenter_end(ObjectMonitor *mon);
 };
@@ -133,6 +151,11 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
 
   static OopStorage* _oop_storage;
 
+  // List of j.l.VirtualThread waiting to be unblocked by unblocker thread.
+  static OopHandle _vthread_cxq_head;
+  // ParkEvent of unblocker thread.
+  static ParkEvent* _vthread_unparker_ParkEvent;
+
   // The sync code expects the metadata field to be at offset zero (0).
   // Enforced by the assert() in metadata_addr().
   // * LM_LIGHTWEIGHT with UseObjectMonitorTable:
@@ -194,6 +217,10 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
  public:
 
   static void Initialize();
+  static void Initialize2();
+
+  static OopHandle& vthread_cxq_head() { return _vthread_cxq_head; }
+  static ParkEvent* vthread_unparker_ParkEvent() { return _vthread_unparker_ParkEvent; }
 
   // Only perform a PerfData operation if the PerfData object has been
   // allocated and if the PerfDataManager has not freed the PerfData
@@ -270,7 +297,6 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
   int64_t   owner_raw() const;
 
   static int64_t owner_for(JavaThread* thread);
-  static int64_t owner_for_oop(oop vthread);
 
   // Returns true if owner field == DEFLATER_MARKER and false otherwise.
   bool      owner_is_DEFLATER_MARKER() const;
@@ -318,14 +344,13 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
   // Simply set _next_om field to new_value.
   void set_next_om(ObjectMonitor* new_value);
 
-  int       waiters() const;
-
   int       contentions() const;
   void      add_to_contentions(int value);
   intx      recursions() const                                         { return _recursions; }
   void      set_recursions(size_t recursions);
 
   // JVM/TI GetObjectMonitorUsage() needs this:
+  int waiters() const;
   ObjectWaiter* first_waiter()                                         { return _WaitSet; }
   ObjectWaiter* next_waiter(ObjectWaiter* o)                           { return o->_next; }
   JavaThread* thread_of_waiter(ObjectWaiter* o)                        { return o->_thread; }
@@ -369,6 +394,7 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
   bool      spin_enter(JavaThread* current);
   void      enter_with_contention_mark(JavaThread* current, ObjectMonitorContentionMark& contention_mark);
   void      exit(JavaThread* current, bool not_suspended = true);
+  bool      resume_operation(JavaThread* current, ObjectWaiter* node, ContinuationWrapper& cont);
   void      wait(jlong millis, bool interruptible, TRAPS);
   void      notify(TRAPS);
   void      notifyAll(TRAPS);
@@ -390,6 +416,11 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
   void      EnterI(JavaThread* current);
   void      ReenterI(JavaThread* current, ObjectWaiter* current_node);
   void      UnlinkAfterAcquire(JavaThread* current, ObjectWaiter* current_node);
+
+  bool      VThreadMonitorEnter(JavaThread* current, ObjectWaiter* node = nullptr);
+  void      VThreadWait(JavaThread* current, jlong millis);
+  bool      VThreadWaitReenter(JavaThread* current, ObjectWaiter* node, ContinuationWrapper& cont);
+  void      VThreadEpilog(JavaThread* current, ObjectWaiter* node);
 
   enum class TryLockResult { Interference = -1, HasOwner = 0, Success = 1 };
 

@@ -665,6 +665,10 @@ void ObjectSynchronizer::exit_legacy(oop object, BasicLock* lock, JavaThread* cu
 // JNI locks on java objects
 // NOTE: must use heavy weight monitor to handle jni monitor enter
 void ObjectSynchronizer::jni_enter(Handle obj, JavaThread* current) {
+  // Top native frames in the stack will not be seen if we attempt
+  // preemption, since we start walking from the last Java anchor.
+  NoPreemptMark npm(current);
+
   if (obj->klass()->is_value_based()) {
     handle_sync_on_value_based_class(obj, current);
   }
@@ -716,7 +720,7 @@ void ObjectSynchronizer::jni_exit(oop obj, TRAPS) {
 // -----------------------------------------------------------------------------
 // Internal VM locks on java objects
 // standard constructor, allows locking failures
-ObjectLocker::ObjectLocker(Handle obj, JavaThread* thread) {
+ObjectLocker::ObjectLocker(Handle obj, JavaThread* thread) : _npm(thread) {
   _thread = thread;
   _thread->check_for_valid_safepoint_state();
   _obj = obj;
@@ -1239,14 +1243,7 @@ void ObjectSynchronizer::owned_monitors_iterate_filtered(MonitorClosure* closure
 // Iterate ObjectMonitors where the owner == thread; this does NOT include
 // ObjectMonitors where owner is set to a stack-lock address in thread.
 void ObjectSynchronizer::owned_monitors_iterate(MonitorClosure* closure, JavaThread* thread) {
-  int64_t key = ObjectMonitor::owner_for(thread);
-  auto thread_filter = [&](ObjectMonitor* monitor) { return monitor->owner() == key; };
-  return owned_monitors_iterate_filtered(closure, thread_filter);
-}
-
-void ObjectSynchronizer::owned_monitors_iterate(MonitorClosure* closure, oop vthread) {
-  int64_t key = ObjectMonitor::owner_for_oop(vthread);
-  auto thread_filter = [&](ObjectMonitor* monitor) { return monitor->owner() == key; };
+  auto thread_filter = [&](ObjectMonitor* monitor) { return monitor->is_owner(thread); };
   return owned_monitors_iterate_filtered(closure, thread_filter);
 }
 
