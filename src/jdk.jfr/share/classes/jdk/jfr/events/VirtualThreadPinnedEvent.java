@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2021, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2023, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -23,15 +21,23 @@
  * questions.
  */
 
-package jdk.jfr.events;
+#include "jni.h"
 
-import jdk.jfr.Category;
-import jdk.jfr.Label;
-import jdk.jfr.Name;
-import jdk.jfr.internal.MirrorEvent;
+JNIEXPORT void JNICALL
+Java_SynchronizedNative_runWithSynchronizedNative(JNIEnv *env, jobject obj, jobject task) {
+    jclass clazz = (*env)->GetObjectClass(env, obj);
+    jmethodID mid = (*env)->GetMethodID(env, clazz, "run", "(Ljava/lang/Runnable;)V");
+    if (mid != NULL) {
+        (*env)->CallVoidMethod(env, obj, mid, task);
+    }
+}
 
-@Category("Java Application")
-@Label("Virtual Thread Pinned")
-@Name("jdk.VirtualThreadPinned")
-public final class VirtualThreadPinnedEvent extends MirrorEvent {
+JNIEXPORT void JNICALL
+Java_SynchronizedNative_runWithMonitorEnteredInNative(JNIEnv *env, jobject obj, jobject lock, jobject task) {
+    jclass clazz = (*env)->GetObjectClass(env, obj);
+    jmethodID mid = (*env)->GetMethodID(env, clazz, "run", "(Ljava/lang/Runnable;)V");
+    if (mid != NULL && (*env)->MonitorEnter(env, lock) == 0) {
+        (*env)->CallVoidMethod(env, obj, mid, task);
+        (*env)->MonitorExit(env, lock);  // can be called with pending exception
+    }
 }
