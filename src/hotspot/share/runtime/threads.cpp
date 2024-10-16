@@ -587,6 +587,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
     return status;
   }
 
+  ObjectMonitor::Initialize2();
+
   JFR_ONLY(Jfr::on_create_vm_1();)
 
   // Should be done after the heap is fully created
@@ -1266,6 +1268,7 @@ JavaThread* Threads::owning_thread_from_monitor(ThreadsList* t_list, ObjectMonit
     }
   } else {
     JavaThread* the_owner = nullptr;
+    int64_t owner_tid = (int64_t)monitor->owner();
     for (JavaThread* q : *t_list) {
       if (monitor->is_owner(q)) {
         the_owner = q;
