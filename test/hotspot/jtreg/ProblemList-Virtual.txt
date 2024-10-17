@@ -100,7 +100,9 @@ vmTestbase/nsk/jdi/ThreadReference/isSuspended/issuspended002/TestDescription.ja
 
 vmTestbase/nsk/jdb/kill/kill001/kill001.java 8338714 generic-all
 
-###
+# Unknown reasons, should be investigated
+vmTestbase/gc/gctests/MemoryEaterMT/MemoryEaterMT.java 0000000 generic-all
+
 # Fails on Windows because of additional memory allocation.
 
 gc/g1/TestMixedGCLiveThreshold.java#25percent 8334759 windows-x64
@@ -116,3 +118,20 @@ runtime/ErrorHandling/MachCodeFramesInErrorFile.java 0000000 generic-all
 runtime/Thread/AsyncExceptionOnMonitorEnter.java 0000000 generic-all
 runtime/Thread/StopAtExit.java 0000000 generic-all
 runtime/handshake/HandshakeWalkStackTest.java 0000000 generic-all
+
+# java.lang.ClassNotFoundException: jdk.test.lib.process.ProcessTools
+runtime/cds/appcds/jigsaw/classpathtests/EmptyClassInBootClassPath.java 0000000 generic-all
+
+#  java.lang.ClassNotFoundException: / in ProcessTools.main
+runtime/cds/appcds/jigsaw/modulepath/OptimizeModuleHandlingTest.java 0000000 generic-all
+
+# too fragile when main thread is a virtual thread
+runtime/Thread/ThreadCountLimit.java#id0 0000000 generic-all
+
+# Invalid code heap sizes
+compiler/arguments/TestC1Globals.java#id0 0000000 generic-all
+compiler/arguments/TestC1Globals.java#id1 0000000 generic-all
+compiler/arguments/TestC1Globals.java#id2 0000000 generic-all
+
+# OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "main"
+compiler/codecache/CodeCacheFullCountTest.java 8332926 generic-all

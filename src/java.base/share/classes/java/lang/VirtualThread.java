@@ -24,8 +24,10 @@
  */
 package java.lang;
 
+import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -41,6 +43,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import jdk.internal.event.VirtualThreadEndEvent;
 import jdk.internal.event.VirtualThreadStartEvent;
 import jdk.internal.event.VirtualThreadSubmitFailedEvent;
@@ -67,7 +70,7 @@ import static java.util.concurrent.TimeUnit.*;
 final class VirtualThread extends BaseVirtualThread {
     private static final Unsafe U = Unsafe.getUnsafe();
     private static final ContinuationScope VTHREAD_SCOPE = new ContinuationScope("VirtualThreads");
-    private static final ForkJoinPool DEFAULT_SCHEDULER = createDefaultScheduler();
+    private static final Executor DEFAULT_SCHEDULER = createDefaultScheduler();
     private static final ScheduledExecutorService[] DELAYED_TASK_SCHEDULERS = createDelayedTaskSchedulers();
 
     private static final long STATE = U.objectFieldOffset(VirtualThread.class, "state");
@@ -189,6 +192,13 @@ final class VirtualThread extends BaseVirtualThread {
      */
     static Executor defaultScheduler() {
         return DEFAULT_SCHEDULER;
+    }
+
+    /**
+     * Returns a stream of the delayed task schedulers used to support timed operations.
+     */
+    static Stream<ScheduledExecutorService> delayedTaskSchedulers() {
+        return Arrays.stream(DELAYED_TASK_SCHEDULERS);
     }
 
     /**
@@ -1488,10 +1498,39 @@ final class VirtualThread extends BaseVirtualThread {
     }
 
     /**
+     * Creates the default scheduler.
+     * If the system property {@code jdk.virtualThreadScheduler.implClass} is set then
+     * its value is the name of a class that implements java.util.concurrent.Executor.
+     * The class is public in an exported package, has a public no-arg constructor,
+     * and is visible to the system class loader.
+     * If the system property is not set then the default scheduler will be a
+     * ForkJoinPool instance.
+     */
+    private static Executor createDefaultScheduler() {
+        String propName = "jdk.virtualThreadScheduler.implClass";
+        String propValue = GetPropertyAction.privilegedGetProperty(propName);
+        if (propValue != null) {
+            try {
+                Class<?> clazz = Class.forName(propValue, true,
+                        ClassLoader.getSystemClassLoader());
+                Constructor<?> ctor = clazz.getConstructor();
+                var scheduler = (Executor) ctor.newInstance();
+                System.err.println("""
+                    WARNING: Using custom scheduler, this is an experimental feature.""");
+                return scheduler;
+            } catch (Exception ex) {
+                throw new Error(ex);
+            }
+        } else {
+            return createDefaultForkJoinPoolScheduler();
+        }
+    }
+
+    /**
      * Creates the default ForkJoinPool scheduler.
      */
     @SuppressWarnings("removal")
-    private static ForkJoinPool createDefaultScheduler() {
+    private static ForkJoinPool createDefaultForkJoinPoolScheduler() {
         ForkJoinWorkerThreadFactory factory = pool -> {
             PrivilegedAction<ForkJoinWorkerThread> pa = () -> new CarrierThread(pool);
             return AccessController.doPrivileged(pa);

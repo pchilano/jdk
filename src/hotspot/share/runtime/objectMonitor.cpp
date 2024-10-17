@@ -1007,7 +1007,7 @@ void ObjectMonitor::ReenterI(JavaThread* current, ObjectWaiter* currentNode) {
   assert_mark_word_consistency();
 
   for (;;) {
-    ObjectWaiter::TStates v = currentNode->TState;
+    uint8_t v = currentNode->TState;
     guarantee(v == ObjectWaiter::TS_ENTER || v == ObjectWaiter::TS_CXQ, "invariant");
     assert(!is_owner(current), "invariant");
 
