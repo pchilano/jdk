@@ -358,7 +358,7 @@ class JvmtiExport : public AllStatic {
   static void post_vthread_start         (jthread vthread) NOT_JVMTI_RETURN;
   static void post_vthread_end           (jthread vthread) NOT_JVMTI_RETURN;
   static void post_vthread_mount         (jthread vthread) NOT_JVMTI_RETURN;
-  static void post_vthread_unmount       (jthread vthread) NOT_JVMTI_RETURN;
+  static void post_vthread_unmount       (jthread vthread, JvmtiThreadState* state_to_use = nullptr) NOT_JVMTI_RETURN;
 
   static void continuation_yield_cleanup (JavaThread* thread, jint continuation_frame_count) NOT_JVMTI_RETURN;
 

@@ -667,7 +667,10 @@ JvmtiVTMSTransitionDisabler::VTMS_unmount_end(jobject vthread) {
 
   if (thread->pending_jvmti_unmount_event()) {
     assert(java_lang_VirtualThread::is_preempted(JNIHandles::resolve(vthread)), "should be marked preempted");
-    JvmtiExport::post_vthread_unmount(vthread);
+    // State rebinding has already happened so use the correct state when posting the event.
+    Handle vth = Handle(thread, JNIHandles::resolve_external_guard(vthread));
+    JvmtiThreadState* state = JvmtiThreadState::state_for(nullptr, vth);
+    JvmtiExport::post_vthread_unmount(vthread, state);
     thread->set_pending_jvmti_unmount_event(false);
   }
 }
