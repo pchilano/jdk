@@ -513,7 +513,6 @@ JvmtiVTMSTransitionDisabler::finish_VTMS_transition(jthread vthread, bool is_mou
   if (!sync_protocol_enabled()) {
     return;
   }
-  int64_t thread_id = java_lang_Thread::thread_id(vt);
 
   // Unblock waiting VTMS transition disablers.
   if (_VTMS_transition_disable_for_one_count > 0 ||
@@ -529,9 +528,7 @@ JvmtiVTMSTransitionDisabler::finish_VTMS_transition(jthread vthread, bool is_mou
       MonitorLocker ml(JvmtiVTMSTransition_lock);
 
       // Block while there are suspend requests.
-      if ((!is_mount && thread->is_carrier_thread_suspended()) ||
-          (is_mount && JvmtiVTSuspender::is_vthread_suspended(thread_id))
-      ) {
+      if (!is_mount && thread->is_carrier_thread_suspended()) {
         // Block while there are suspend requests.
         if (ml.wait(200)) {
           attempts--;
@@ -544,8 +541,7 @@ JvmtiVTMSTransitionDisabler::finish_VTMS_transition(jthread vthread, bool is_mou
   }
 #ifdef ASSERT
   if (attempts == 0) {
-    log_error(jvmti)("finish_VTMS_transition: thread->is_suspended: %d is_vthread_suspended: %d\n\n",
-                     thread->is_suspended(), JvmtiVTSuspender::is_vthread_suspended(thread_id));
+    log_error(jvmti)("finish_VTMS_transition: thread->is_carrier_thread_suspended: %d", thread->is_carrier_thread_suspended());
     print_info();
     fatal("stuck in JvmtiVTMSTransitionDisabler::finish_VTMS_transition");
   }
@@ -684,7 +680,7 @@ JvmtiVTSuspender::_not_suspended_list = new VirtualThreadList();
 
 void
 JvmtiVTSuspender::register_all_vthreads_suspend() {
-  MonitorLocker ml(JvmtiVTMSTransition_lock);
+  MutexLocker ml(JvmtiVThreadSuspend_lock, Mutex::_no_safepoint_check_flag);
 
   _SR_mode = SR_all;
   _suspended_list->invalidate();
@@ -693,7 +689,7 @@ JvmtiVTSuspender::register_all_vthreads_suspend() {
 
 void
 JvmtiVTSuspender::register_all_vthreads_resume() {
-  MonitorLocker ml(JvmtiVTMSTransition_lock);
+  MutexLocker ml(JvmtiVThreadSuspend_lock, Mutex::_no_safepoint_check_flag);
 
   _SR_mode = SR_none;
   _suspended_list->invalidate();
@@ -703,7 +699,7 @@ JvmtiVTSuspender::register_all_vthreads_resume() {
 void
 JvmtiVTSuspender::register_vthread_suspend(oop vt) {
   int64_t id = java_lang_Thread::thread_id(vt);
-  MonitorLocker ml(JvmtiVTMSTransition_lock);
+  MutexLocker ml(JvmtiVThreadSuspend_lock, Mutex::_no_safepoint_check_flag);
 
   if (_SR_mode == SR_all) {
     assert(_not_suspended_list->contains(id),
@@ -720,7 +716,7 @@ JvmtiVTSuspender::register_vthread_suspend(oop vt) {
 void
 JvmtiVTSuspender::register_vthread_resume(oop vt) {
   int64_t id = java_lang_Thread::thread_id(vt);
-  MonitorLocker ml(JvmtiVTMSTransition_lock);
+  MutexLocker ml(JvmtiVThreadSuspend_lock, Mutex::_no_safepoint_check_flag);
 
   if (_SR_mode == SR_all) {
     assert(!_not_suspended_list->contains(id),
