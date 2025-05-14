@@ -265,6 +265,17 @@ void JfrSamplerThread::task_stacktrace(JfrSampleRequestType type, JavaThread** l
     sample_time.seconds(), type == JAVA_SAMPLE ? num_samples : 0, type == NATIVE_SAMPLE ? num_samples : 0);
 }
 
+class SampleThreadInJava : public AsyncHandshakeClosure {
+public:
+  SampleThreadInJava() : AsyncHandshakeClosure("SampleThreadInJava") {}
+  void do_thread(Thread* thr) {
+    JavaThread* jt = JavaThread::cast(thr);
+    assert(jt == JavaThread::current(), "");
+    JfrThreadSampling::process_sample_request(jt);
+  }
+  bool is_java_sample() { return true; }
+};
+
 // Platform-specific thread suspension and CPU context retrieval.
 class OSThreadSampler : public SuspendedThreadTask {
  private:
@@ -280,8 +291,9 @@ class OSThreadSampler : public SuspendedThreadTask {
     assert(jt != nullptr, "invariant");
     if (jt->thread_state() == _thread_in_Java) {
       JfrThreadLocal* const tl = jt->jfr_thread_local();
-      if (tl->sample_state() == NO_SAMPLE) {
-        _result = JfrSampleRequestBuilder::build_java_sample_request(context, tl, jt);
+      _result = JfrSampleRequestBuilder::build_java_sample_request(context, tl, jt);
+      if (_result == SAMPLE_JAVA && !jt->handshake_state()->has_sample_in_java_operation()) {
+        Handshake::execute(new SampleThreadInJava(), jt);
       }
     }
   }
@@ -293,29 +305,34 @@ bool JfrSamplerThread::sample_java_thread(JavaThread* jt) {
   if (jt->thread_state() != _thread_in_Java) {
     return false;
   }
-
   OSThreadSampler sampler(jt);
   sampler.request_sample();
-
-  if (sampler.result() != SAMPLE_JAVA) {
-    // Wrong thread state or suspension error.
-    return false;
-  }
-
-  // If we get to do it before the sampled thread, we install
-  // the new Jfr Sample Request into the thread-local queue
-  // associated with the sampled thread. This makes the just
-  // sampled thread eligible for yet another sample.
-  JfrThreadLocal* const tl = jt->jfr_thread_local();
-  JfrMutexTryLock lock(tl->sample_monitor());
-  if (lock.acquired() && tl->sample_state() == JAVA_SAMPLE) {
-    tl->enqueue_request();
-    assert(tl->sample_state() == NO_SAMPLE, "invariant");
-  }
-  return true;
+  return sampler.result() == SAMPLE_JAVA;
 }
 
 static JfrSamplerThread* _sampler_thread = nullptr;
+
+class SampleThreadInNative : public HandshakeClosure {
+  bool _sampled;
+public:
+  SampleThreadInNative() : HandshakeClosure("SampleThreadInNative"), _sampled(false) {}
+  void do_thread(Thread* thr) {
+    JavaThread* jt = JavaThread::cast(thr);
+
+    if (!jt->has_last_Java_frame()) return;
+
+    frame last_frame = jt->last_frame();
+    if (!last_frame.is_native_frame() &&
+        !(last_frame.is_interpreted_frame() && last_frame.interpreter_frame_method()->is_native())) {
+      return;
+    }
+
+    JfrThreadLocal* const tl = jt->jfr_thread_local();
+    assert(tl != nullptr, "invariant");
+    _sampled = JfrThreadSampling::process_native_sample_request(tl, jt, Thread::current());
+  }
+  bool sampled() { return _sampled; }
+};
 
 // We can sample a JavaThread running in state _thread_in_native
 // without thread suspension and CPU context retrieval,
@@ -324,33 +341,9 @@ bool JfrSamplerThread::sample_native_thread(JavaThread* jt) {
   if (jt->thread_state() != _thread_in_native) {
     return false;
   }
-
-  JfrThreadLocal* const tl = jt->jfr_thread_local();
-  assert(tl != nullptr, "invariant");
-
-  if (tl->sample_state() != NO_SAMPLE) {
-    return false;
-  }
-
-  tl->set_sample_state(NATIVE_SAMPLE);
-
-  SafepointMechanism::arm_local_poll_release(jt);
-
-  // Barriers needed to keep the next read of thread state from floating up.
-  if (UseSystemMemoryBarrier) {
-    SystemMemoryBarrier::emit();
-  } else {
-    OrderAccess::storeload();
-  }
-
-  if (jt->thread_state() != _thread_in_native || !jt->has_last_Java_frame()) {
-    MonitorLocker lock(tl->sample_monitor(), Monitor::_no_safepoint_check_flag);
-    tl->set_sample_state(NO_SAMPLE);
-    lock.notify_all();
-    return false;
-  }
-
-  return JfrThreadSampling::process_native_sample_request(tl, jt, _sampler_thread);
+  SampleThreadInNative op;
+  Handshake::execute(&op, jt);
+  return op.sampled();
 }
 
 void JfrSamplerThread::set_java_period(int64_t period_millis) {

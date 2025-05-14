@@ -297,14 +297,12 @@ static bool build_from_ljf(JfrSampleRequest& request,
   return build(request, last_fp, jt);
 }
 
-static inline JfrSampleResult set_request_and_arm_local_poll(JfrSampleRequest& request, JfrThreadLocal* tl, JavaThread* jt) {
+static inline JfrSampleResult set_request(JfrSampleRequest& request, JfrThreadLocal* tl, JavaThread* jt) {
   assert(tl != nullptr, "invariant");
   assert(jt->jfr_thread_local() == tl, "invariant");
-  tl->set_sample_state(JAVA_SAMPLE);
-  SafepointMechanism::arm_local_poll_release(jt);
   // For a Java sample, request._sample_ticks is also the start time for the SafepointLatency event.
   request._sample_ticks = JfrTicks::now();
-  tl->set_sample_request(request);
+  tl->enqueue_request(request);
   return SAMPLE_JAVA;
 }
 
@@ -315,7 +313,7 @@ static inline JfrSampleResult set_biased_java_sample(JfrSampleRequest& request, 
   }
   assert(request._sample_bcp == nullptr, "invariant");
   request._sample_pc = nullptr;
-  return set_request_and_arm_local_poll(request, tl, jt);
+  return set_request(request, tl, jt);
 }
 
 static inline JfrSampleResult set_unbiased_java_sample(JfrSampleRequest& request, JfrThreadLocal* tl, JavaThread* jt) {
@@ -323,14 +321,13 @@ static inline JfrSampleResult set_unbiased_java_sample(JfrSampleRequest& request
   assert(sp_in_stack(request, jt), "invariant");
   assert(request._sample_pc != nullptr, "invariant");
   assert(request._sample_bcp != nullptr || !is_interpreter(request), "invariant");
-  return set_request_and_arm_local_poll(request, tl, jt);
+  return set_request(request, tl, jt);
 }
 
 JfrSampleResult JfrSampleRequestBuilder::build_java_sample_request(const SuspendedThreadTaskContext& context,
                                                                    JfrThreadLocal* tl,
                                                                    JavaThread* jt) {
   assert(tl != nullptr, "invariant");
-  assert(tl->sample_state() == NO_SAMPLE, "invariant");
   assert(jt != nullptr, "invariant");
   assert(jt->thread_state() == _thread_in_Java, "invariant");
 

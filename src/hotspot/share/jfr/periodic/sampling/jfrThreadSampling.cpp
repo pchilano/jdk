@@ -251,7 +251,6 @@ static void drain_enqueued_requests(const JfrTicks& now, JfrThreadLocal* tl, Jav
   assert(jt != nullptr, "invariant");
   assert(current != nullptr, "invariant");
   assert(jt->jfr_thread_local() == tl, "invariant");
-  assert_lock_strong(tl->sample_monitor());
   if (tl->has_enqueued_requests()) {
     for (const JfrSampleRequest& request : *tl->sample_requests()) {
       record_thread_in_java(request, now, jt, current);
@@ -261,64 +260,53 @@ static void drain_enqueued_requests(const JfrTicks& now, JfrThreadLocal* tl, Jav
   assert(!tl->has_enqueued_requests(), "invariant");
 }
 
-class SampleMonitor : public StackObj {
- private:
-  JfrThreadLocal* const _tl;
-  Monitor* const _sample_monitor;
+class ThreadInVMfromJavaNoPoll {
+  JavaThread* _jt;
+  bool _transition_to_java;
  public:
-  SampleMonitor(JfrThreadLocal* tl) : _tl(tl), _sample_monitor(tl->sample_monitor()) {
-    assert(tl != nullptr, "invariant");
-    assert(_sample_monitor != nullptr, "invariant");
-    _sample_monitor->lock_without_safepoint_check();
+  ThreadInVMfromJavaNoPoll(JavaThread* thread) : _jt(thread), _transition_to_java(false) {
+    if (_jt->thread_state() == _thread_in_Java) {
+      _jt->set_thread_state_fence(_thread_in_vm);
+      _transition_to_java = true;
+    }
   }
-  ~SampleMonitor() {
-    assert_lock_strong(_sample_monitor);
-    _tl->set_sample_state(NO_SAMPLE);
-    _sample_monitor->notify_all();
-    _sample_monitor->unlock();
+  ~ThreadInVMfromJavaNoPoll()  {
+    if (_transition_to_java) {
+      _jt->set_thread_state(_thread_in_Java);
+    }
   }
 };
 
 // Only entered by the JfrSampler thread.
-bool JfrThreadSampling::process_native_sample_request(JfrThreadLocal* tl, JavaThread* jt, Thread* sampler_thread) {
+bool JfrThreadSampling::process_native_sample_request(JfrThreadLocal* tl, JavaThread* jt, Thread* current) {
   assert(tl != nullptr, "invairant");
   assert(jt != nullptr, "invariant");
-  assert(sampler_thread != nullptr, "invariant");
-  assert(sampler_thread->is_JfrSampler_thread(), "invariant");
   assert(tl == jt->jfr_thread_local(), "invariant");
-  assert(jt != sampler_thread, "only asynchronous processing of native samples");
   assert(jt->has_last_Java_frame(), "invariant");
-  assert(tl->sample_state() == NATIVE_SAMPLE, "invariant");
 
   const JfrTicks start_time = JfrTicks::now();
 
   traceid tid;
   traceid sid;
 
+  // Because the thread was in native, it is in a walkable state, because
+  // it will hit a safepoint poll on the way back from native. To ensure timely
+  // progress, any requests in the queue can be safely processed now.
+  drain_enqueued_requests(start_time, tl, jt, current);
+  // Process the current stacktrace using the ljf.
   {
-    SampleMonitor sm(tl);
-
-    // Because the thread was in native, it is in a walkable state, because
-    // it will hit a safepoint poll on the way back from native. To ensure timely
-    // progress, any requests in the queue can be safely processed now.
-    drain_enqueued_requests(start_time, tl, jt, sampler_thread);
-    // Process the current stacktrace using the ljf.
-    {
-      ResourceMark rm(sampler_thread);
-      JfrStackTrace stacktrace;
-      const frame top_frame = jt->last_frame();
-      if (!stacktrace.record_inner(jt, top_frame, 0 /* skip level */)) {
-        // Unable to record stacktrace. Fail.
-        return false;
-      }
-      sid = JfrStackTraceRepository::add(stacktrace);
+    ResourceMark rm(current);
+    JfrStackTrace stacktrace;
+    const frame top_frame = jt->last_frame();
+    if (!stacktrace.record_inner(jt, top_frame, 0 /* skip level */)) {
+      // Unable to record stacktrace. Fail.
+      return false;
     }
-    // Read the tid under the monitor to ensure that if its a virtual thread,
-    // it is not unmounted until we are done with it.
-    tid = JfrThreadLocal::thread_id(jt);
+    sid = JfrStackTraceRepository::add(stacktrace);
   }
-
-  assert(tl->sample_state() == NO_SAMPLE, "invariant");
+  // Read the tid under the monitor to ensure that if its a virtual thread,
+  // it is not unmounted until we are done with it.
+  tid = JfrThreadLocal::thread_id(jt);
   send_sample_event<EventNativeMethodSample>(start_time, start_time, sid, tid);
   return true;
 }
@@ -333,19 +321,10 @@ void JfrThreadSampling::process_sample_request(JavaThread* jt) {
   JfrThreadLocal* const tl = jt->jfr_thread_local();
   assert(tl != nullptr, "invariant");
 
-  MonitorLocker ml(tl->sample_monitor(), Monitor::_no_safepoint_check_flag);
-
-  for (;;) {
-    const int sample_state = tl->sample_state();
-    if (sample_state == NATIVE_SAMPLE) {
-      // Wait until stack trace is processed.
-      ml.wait();
-    } else if (sample_state == JAVA_SAMPLE) {
-      tl->enqueue_request();
-    } else {
-      // State has been processed.
-      break;
-    }
-  }
+  // If coming from Java, transition to VM temporarily in case sampler
+  // sends a signal while manipulating the sample_request or handshake
+  // queue (see OSThreadSampler::do_task()).
+  ThreadInVMfromJavaNoPoll tiv(jt);
   drain_enqueued_requests(now, tl, jt, jt);
+  jt->handshake_state()->remove_sample_in_java_operation();
 }

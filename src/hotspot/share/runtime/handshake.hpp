@@ -54,6 +54,7 @@ class HandshakeClosure : public ThreadClosure, public CHeapObj<mtThread> {
   virtual bool is_async()                          { return false; }
   virtual bool is_suspend()                        { return false; }
   virtual bool is_async_exception()                { return false; }
+  virtual bool is_java_sample()                    { return false; }
   virtual void do_thread(Thread* thread) = 0;
 };
 
@@ -133,6 +134,8 @@ class HandshakeState {
   bool has_operation(bool allow_suspend, bool check_async_exception);
   bool has_async_exception_operation();
   void clean_async_exception_operation();
+  bool has_sample_in_java_operation();
+  void remove_sample_in_java_operation();
 
   bool operation_pending(HandshakeOperation* op);
 

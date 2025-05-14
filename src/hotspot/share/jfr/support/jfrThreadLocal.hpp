@@ -44,9 +44,7 @@ class JfrThreadLocal {
   friend class JfrJavaSupport;
   friend class JVMCIVMStructs;
  private:
-  mutable JfrSampleRequest _sample_request;
   JfrSampleRequestQueue _sample_request_queue;
-  Monitor _sample_monitor;
   jobject _java_event_writer;
   mutable JfrBuffer* _java_buffer;
   mutable JfrBuffer* _native_buffer;
@@ -55,7 +53,6 @@ class JfrThreadLocal {
   JfrBuffer* _load_barrier_buffer_epoch_1;
   JfrBuffer* _checkpoint_buffer_epoch_0;
   JfrBuffer* _checkpoint_buffer_epoch_1;
-  volatile int _sample_state;
   JavaThreadState _sample_thread_state;
   Arena* _dcmd_arena;
   JfrBlobHandle _thread;
@@ -146,78 +143,25 @@ class JfrThreadLocal {
     _java_event_writer = java_event_writer;
   }
 
-
-  int sample_state() const {
-    return Atomic::load_acquire(&_sample_state);
-  }
-
-  void set_sample_state(int state) {
-    Atomic::release_store(&_sample_state, state);
-  }
-
-  Monitor* sample_monitor() {
-    return &_sample_monitor;
-  }
-
   JfrSampleRequestQueue* sample_requests() {
     return &_sample_request_queue;
-  }
-
-  JfrSampleRequest sample_request() const {
-    return _sample_request;
-  }
-
-  void set_sample_request(JfrSampleRequest request) {
-    _sample_request = request;
-  }
-
-  void set_sample_ticks() {
-    _sample_request._sample_ticks = JfrTicks::now();
-  }
-
-  void set_sample_ticks(const JfrTicks& ticks) {
-    _sample_request._sample_ticks = ticks;
-  }
-
-  bool has_sample_ticks() const {
-    return _sample_request._sample_ticks.value() != 0;
-  }
-
-  const JfrTicks& sample_ticks() const {
-    return _sample_request._sample_ticks;
   }
 
   bool has_enqueued_requests() const {
     return Atomic::load_acquire(&_enqueued_requests);
   }
 
-  void enqueue_request() {
-    assert_lock_strong(sample_monitor());
-    assert(sample_state() == JAVA_SAMPLE, "invariant");
-    if (_sample_request_queue.append(_sample_request) == 0) {
+  void enqueue_request(JfrSampleRequest& request) {
+    if (_sample_request_queue.append(request) == 0) {
       Atomic::release_store(&_enqueued_requests, true);
     }
-    set_sample_state(NO_SAMPLE);
   }
 
   void clear_enqueued_requests() {
-    assert_lock_strong(sample_monitor());
     assert(has_enqueued_requests(), "invariant");
     assert(_sample_request_queue.is_nonempty(), "invariant");
     _sample_request_queue.clear();
     Atomic::release_store(&_enqueued_requests, false);
-  }
-
-  bool has_native_sample_request() const {
-    return sample_state() == NATIVE_SAMPLE;
-  }
-
-  bool has_java_sample_request() const {
-    return sample_state() == JAVA_SAMPLE || has_enqueued_requests();
-  }
-
-  bool has_sample_request() const {
-    return sample_state() != NO_SAMPLE || has_enqueued_requests();
   }
 
   void set_sample_thread_state(JavaThreadState state) {

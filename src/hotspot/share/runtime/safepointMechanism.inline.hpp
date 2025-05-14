@@ -59,10 +59,6 @@ bool SafepointMechanism::global_poll() {
   return (SafepointSynchronize::_state != SafepointSynchronize::_not_synchronized);
 }
 
-inline bool SafepointMechanism::has_pending_safepoint(JavaThread* thread) {
-  return global_poll() || thread->handshake_state()->has_operation() JFR_ONLY(|| Jfr::has_sample_request(thread));
-}
-
 bool SafepointMechanism::should_process(JavaThread* thread, bool allow_suspend) {
   if (!local_poll_armed(thread)) {
     return false;

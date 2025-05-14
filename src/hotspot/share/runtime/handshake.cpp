@@ -83,6 +83,7 @@ class HandshakeOperation : public CHeapObj<mtThread> {
   bool is_async()                  { return _handshake_cl->is_async(); }
   bool is_suspend()                { return _handshake_cl->is_suspend(); }
   bool is_async_exception()        { return _handshake_cl->is_async_exception(); }
+  bool is_java_sample()            { return _handshake_cl->is_java_sample(); }
 };
 
 class AsyncHandshakeOperation : public HandshakeOperation {
@@ -362,8 +363,8 @@ void Handshake::execute(HandshakeClosure* hs_cl, JavaThread* target) {
 }
 
 void Handshake::execute(HandshakeClosure* hs_cl, ThreadsListHandle* tlh, JavaThread* target) {
-  JavaThread* self = JavaThread::current();
-  HandshakeOperation op(hs_cl, target, Thread::current());
+  Thread* self = Thread::current();
+  HandshakeOperation op(hs_cl, target, self);
 
   jlong start_time_ns = os::javaTimeNanos();
 
@@ -408,9 +409,9 @@ void Handshake::execute(HandshakeClosure* hs_cl, ThreadsListHandle* tlh, JavaThr
     hsy.add_result(pr);
     // Check for pending handshakes to avoid possible deadlocks where our
     // target is trying to handshake us.
-    if (SafepointMechanism::should_process(self)) {
+    if (self->is_Java_thread() && SafepointMechanism::should_process(JavaThread::cast(self))) {
       // Will not suspend here.
-      ThreadBlockInVM tbivm(self);
+      ThreadBlockInVM tbivm(JavaThread::cast(self));
     }
     hsy.process();
   }
@@ -455,6 +456,9 @@ static bool async_exception_filter(HandshakeOperation* op) {
 }
 static bool no_suspend_no_async_exception_filter(HandshakeOperation* op) {
   return !op->is_suspend() && !op->is_async_exception();
+}
+static bool java_sample_filter(HandshakeOperation* op) {
+  return op->is_java_sample();
 }
 static bool all_ops_filter(HandshakeOperation* op) {
   return true;
@@ -537,6 +541,21 @@ void HandshakeState::clean_async_exception_operation() {
     remove_op(op);
     delete op;
   }
+}
+
+bool HandshakeState::has_sample_in_java_operation() {
+  if (!has_operation()) return false;
+  return _queue.peek(java_sample_filter) != nullptr;
+}
+
+void HandshakeState::remove_sample_in_java_operation() {
+  if (has_sample_in_java_operation()) {
+    MutexLocker ml(&_lock, Mutex::_no_safepoint_check_flag);
+    HandshakeOperation* op = _queue.peek(java_sample_filter);
+    remove_op(op);
+    delete op;
+  }
+  assert(!has_sample_in_java_operation(), "");
 }
 
 bool HandshakeState::have_non_self_executable_operation() {

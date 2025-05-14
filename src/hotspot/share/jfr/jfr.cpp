@@ -151,13 +151,9 @@ bool Jfr::on_start_flight_recording_option(const JavaVMOption** option, char* de
   return JfrOptionSet::parse_start_flight_recording_option(option, delimiter);
 }
 
-bool Jfr::has_sample_request(JavaThread* jt) {
-  return jt->jfr_thread_local()->has_sample_request();
-}
-
 void Jfr::check_and_process_sample_request(JavaThread* jt) {
   assert(jt != nullptr, "invariant");
-  if (has_sample_request(jt)) {
+  if (jt->jfr_thread_local()->has_enqueued_requests()) {
     JfrThreadSampling::process_sample_request(jt);
   }
 }

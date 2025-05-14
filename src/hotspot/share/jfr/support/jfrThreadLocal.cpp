@@ -46,9 +46,7 @@
 #include "utilities/sizes.hpp"
 
 JfrThreadLocal::JfrThreadLocal() :
-  _sample_request(),
   _sample_request_queue(8),
-  _sample_monitor(Monitor::nosafepoint, "jfr thread sample monitor"),
   _java_event_writer(nullptr),
   _java_buffer(nullptr),
   _native_buffer(nullptr),
@@ -57,7 +55,6 @@ JfrThreadLocal::JfrThreadLocal() :
   _load_barrier_buffer_epoch_1(nullptr),
   _checkpoint_buffer_epoch_0(nullptr),
   _checkpoint_buffer_epoch_1(nullptr),
-  _sample_state(0),
   _sample_thread_state(_thread_uninitialized),
   _dcmd_arena(nullptr),
   _thread(),
@@ -270,10 +267,6 @@ ByteSize JfrThreadLocal::vthread_excluded_offset() {
 
 ByteSize JfrThreadLocal::notified_offset() {
   return byte_offset_of(JfrThreadLocal, _notified);
-}
-
-ByteSize JfrThreadLocal::sample_state_offset() {
-  return byte_offset_of(JfrThreadLocal, _sample_state);
 }
 
 void JfrThreadLocal::set(bool* exclusion_field, bool state) {
