@@ -35,8 +35,6 @@
 class HandshakeOperation;
 class AsyncHandshakeOperation;
 class JavaThread;
-class SuspendThreadHandshake;
-class ThreadSelfSuspensionHandshake;
 class UnsafeAccessErrorHandshake;
 class ThreadsListHandle;
 
@@ -88,8 +86,6 @@ class JvmtiRawMonitor;
 // operation is only done by either VMThread/Handshaker on behalf of the
 // JavaThread or by the target JavaThread itself.
 class HandshakeState {
-  friend ThreadSelfSuspensionHandshake;
-  friend SuspendThreadHandshake;
   friend UnsafeAccessErrorHandshake;
   friend JavaThread;
   // This a back reference to the JavaThread,
@@ -160,31 +156,6 @@ class HandshakeState {
   bool async_exceptions_blocked() { return _async_exceptions_blocked; }
   void set_async_exceptions_blocked(bool b) { _async_exceptions_blocked = b; }
   void handle_unsafe_access_error();
-
-  // Suspend/resume support
- private:
-  // This flag is true when the thread owning this
-  // HandshakeState (the _handshakee) is suspended.
-  volatile bool _suspended;
-  // This flag is true while there is async handshake (trap)
-  // on queue. Since we do only need one, we can reuse it if
-  // thread gets suspended again (after a resume)
-  // and we have not yet processed it.
-  bool _async_suspend_handshake;
-
-  // Called from the suspend handshake.
-  bool suspend_with_handshake(bool register_vthread_SR);
-  // Called from the async handshake (the trap)
-  // to stop a thread from continuing execution when suspended.
-  void do_self_suspend();
-
-  bool is_suspended()                       { return Atomic::load(&_suspended); }
-  void set_suspended(bool to, bool register_vthread_SR);
-  bool has_async_suspend_handshake()        { return _async_suspend_handshake; }
-  void set_async_suspend_handshake(bool to) { _async_suspend_handshake = to; }
-
-  bool suspend(bool register_vthread_SR);
-  bool resume(bool register_vthread_SR);
 };
 
 #endif // SHARE_RUNTIME_HANDSHAKE_HPP

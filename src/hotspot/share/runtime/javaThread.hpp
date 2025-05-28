@@ -692,11 +692,30 @@ private:
     return _handshake.active_handshaker() == th || this == th;
   }
 
+  // Suspend/resume support
+ private:
+  friend class SuspendThreadHandshake;
+  friend class ThreadSelfSuspensionHandshake;
+  // This flag is true when this thread is suspended.
+  volatile bool _suspended;
+  // This flag is true while there is async handshake (trap)
+  // on queue. Since we do only need one, we can reuse it if
+  // thread gets suspended again (after a resume)
+  // and we have not yet processed it.
+  bool _async_suspend_handshake;
+
+  void set_suspended(bool to, bool register_vthread_SR);
+  bool has_async_suspend_handshake()        { return _async_suspend_handshake; }
+  void set_async_suspend_handshake(bool to) { _async_suspend_handshake = to; }
+  Monitor* suspend_resume_lock() { return &_handshake._lock; }
+  void do_self_suspend();
+
+ public:
   // Suspend/resume support for JavaThread
   // higher-level suspension/resume logic called by the public APIs
   bool java_suspend(bool register_vthread_SR);
   bool java_resume(bool register_vthread_SR);
-  bool is_suspended()     { return _handshake.is_suspended(); }
+  bool is_suspended() { return Atomic::load(&_suspended); }
 
   // Check for async exception in addition to safepoint.
   static void check_special_condition_for_native_trans(JavaThread *thread);
