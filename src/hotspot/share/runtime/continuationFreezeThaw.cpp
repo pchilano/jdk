@@ -54,6 +54,7 @@
 #include "runtime/javaThread.inline.hpp"
 #include "runtime/jniHandles.inline.hpp"
 #include "runtime/keepStackGCProcessed.hpp"
+#include "runtime/mountUnmountDisabler.hpp"
 #include "runtime/objectMonitor.inline.hpp"
 #include "runtime/orderAccess.hpp"
 #include "runtime/prefetch.inline.hpp"
@@ -1652,7 +1653,7 @@ static void jvmti_mount_end(JavaThread* current, ContinuationWrapper& cont, fram
   set_anchor(current, top.sp());
 
   JRT_BLOCK
-    JvmtiVTMSTransitionDisabler::VTMS_vthread_mount((jthread)vth.raw_value(), false);
+    MountUnmountDisabler::end_transition(current, vth(), true /*is_mount*/, false /*is_thread_start*/);
 
     if (current->pending_contended_entered_event()) {
       JvmtiExport::post_monitor_contended_entered(current, current->contended_entered_monitor());
@@ -2467,19 +2468,22 @@ intptr_t* ThawBase::handle_preempted_continuation(intptr_t* sp, Continuation::pr
   frame top(sp);
   assert(top.pc() == *(address*)(sp - frame::sender_sp_ret_address_offset()), "");
 
-#if INCLUDE_JVMTI
   // Finish the VTMS transition.
   assert(_thread->is_in_VTMS_transition(), "must be");
   bool is_vthread = Continuation::continuation_scope(_cont.continuation()) == java_lang_VirtualThread::vthread_scope();
   if (is_vthread) {
-    if (JvmtiVTMSTransitionDisabler::VTMS_notify_jvmti_events()) {
+#if INCLUDE_JVMTI
+    if (MountUnmountDisabler::notify_jvmti_events()) {
       jvmti_mount_end(_thread, _cont, top);
-    } else {
-      _thread->set_is_in_VTMS_transition(false);
+    } else 
+#endif
+    {
+      // Faster version of MountUnmountDisabler::end_transition() to avoid
+      // unnecessary extra instructions from jvmti_mount_end().
       java_lang_Thread::set_is_in_VTMS_transition(_thread->vthread(), false);
+      _thread->set_is_in_VTMS_transition(false);
     }
   }
-#endif
 
   if (fast_case) {
     // If we thawed in the slow path the runtime stub/native wrapper frame already

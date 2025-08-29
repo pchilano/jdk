@@ -82,11 +82,11 @@ void SuspendResumeManager::set_suspended(bool is_suspend, bool register_vthread_
 }
 
 bool SuspendResumeManager::suspend(bool register_vthread_SR) {
-  JVMTI_ONLY(assert(!_target->is_in_VTMS_transition(), "no suspend allowed in VTMS transition");)
   JavaThread* self = JavaThread::current();
   if (_target == self) {
     // If target is the current thread we can bypass the handshake machinery
     // and just suspend directly
+    assert(!self->is_in_VTMS_transition(), "no suspend allowed in VTMS transition");
     ThreadBlockInVM tbivm(self);
     MutexLocker ml(_state_lock, Mutex::_no_safepoint_check_flag);
     set_suspended(true, register_vthread_SR);
