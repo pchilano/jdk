@@ -1168,12 +1168,12 @@ void JavaThread::send_async_exception(JavaThread* target, oop java_throwable) {
 }
 
 bool JavaThread::is_in_VTMS_transition() const {
-  return Atomic::load(&_is_in_VTMS_transition);
+  return AtomicAccess::load(&_is_in_VTMS_transition);
 }
 
 void JavaThread::set_is_in_VTMS_transition(bool val) {
   assert(is_in_VTMS_transition() != val, "already %s transition", val ? "inside" : "outside");
-  Atomic::store(&_is_in_VTMS_transition, val);
+  AtomicAccess::store(&_is_in_VTMS_transition, val);
 }
 
 #ifdef ASSERT

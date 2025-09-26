@@ -335,19 +335,19 @@ MountUnmountDisabler::VTMS_transition_enable_for_all() {
 
 int MountUnmountDisabler::global_start_transition_disable_count() {
   assert(_global_start_transition_disable_count >= 0, "");
-  return Atomic::load(&_global_start_transition_disable_count);
+  return AtomicAccess::load(&_global_start_transition_disable_count);
 }
 
 void MountUnmountDisabler::inc_global_start_transition_disable_count() {
   assert(VTMSTransition_lock->owned_by_self() || SafepointSynchronize::is_at_safepoint(), "Must be locked");
   assert(_global_start_transition_disable_count >= 0, "");
-  Atomic::store(&_global_start_transition_disable_count, _global_start_transition_disable_count + 1);
+  AtomicAccess::store(&_global_start_transition_disable_count, _global_start_transition_disable_count + 1);
 }
 
 void MountUnmountDisabler::dec_global_start_transition_disable_count() {
   assert(VTMSTransition_lock->owned_by_self() || SafepointSynchronize::is_at_safepoint(), "Must be locked");
   assert(_global_start_transition_disable_count > 0, "");
-  Atomic::store(&_global_start_transition_disable_count, _global_start_transition_disable_count - 1);
+  AtomicAccess::store(&_global_start_transition_disable_count, _global_start_transition_disable_count - 1);
 }
 
 bool MountUnmountDisabler::exclusive_operation_ongoing() {
@@ -363,7 +363,7 @@ void MountUnmountDisabler::set_exclusive_operation_ongoing(bool val) {
 
 int MountUnmountDisabler::active_disablers() {
   assert(_active_disablers >= 0, "");
-  return Atomic::load(&_active_disablers);
+  return AtomicAccess::load(&_active_disablers);
 }
 
 void MountUnmountDisabler::inc_active_disablers() {
@@ -390,7 +390,7 @@ void MountUnmountDisabler::set_notify_jvmti_events(bool val, bool is_onload) {
   if (is_onload) {
     // Skip existing increment methods since asserts will fail.
     assert(val && _global_start_transition_disable_count == 0, "");
-    Atomic::inc(&_global_start_transition_disable_count);
+    AtomicAccess::inc(&_global_start_transition_disable_count);
   } else {
     assert(SafepointSynchronize::is_at_safepoint(), "");
     if (val) {
