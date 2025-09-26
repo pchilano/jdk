@@ -472,6 +472,22 @@ extern "C" DEBUGEXPORT void ps() { // print stack
   }
 }
 
+extern "C" DEBUGEXPORT void psthread(JavaThread* thread) { // print stack
+  if (Thread::current_or_null() == nullptr) return;
+  Command c("ps");
+
+  // Prints the stack of the current Java thread
+  tty->print(" for thread: ");
+  thread->print();
+  tty->cr();
+
+  if (thread->has_last_Java_frame()) {
+    // If the last_Java_fp is set we are in C land and
+    // can call the standard stack_trace function.
+    thread->print_active_stack_on(tty);
+  }
+}
+
 extern "C" DEBUGEXPORT void pfl() {
   // print frame layout
   Command c("pfl");
