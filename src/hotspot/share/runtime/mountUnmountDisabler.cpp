@@ -48,7 +48,7 @@ void MountUnmountDisabler::start_transition(JavaThread* thread, oop vthread, boo
   assert(!thread->is_in_VTMS_transition(), "");
   Handle vth = Handle(thread, vthread);
 
-  if (notify_jvmti_events()) {
+  if (DoJVMTIVirtualThreadTransitions && notify_jvmti_events()) {
     // post VirtualThreadUnmount event before VirtualThreadEnd
     if (!is_mount && JvmtiExport::should_post_vthread_unmount()) {
       JvmtiExport::post_vthread_unmount((jthread)vth.raw_value());
@@ -81,7 +81,7 @@ void MountUnmountDisabler::start_transition(JavaThread* thread, oop vthread, boo
     OrderAccess::storeload();
   }
 
-  if (notify_jvmti_events()) {
+  if (DoJVMTIVirtualThreadTransitions && notify_jvmti_events()) {
     if (is_thread_end && thread->jvmti_thread_state() != nullptr) {
       JvmtiExport::cleanup_thread(thread);
       assert(thread->jvmti_thread_state() == nullptr, "should be null");
@@ -103,7 +103,7 @@ void MountUnmountDisabler::end_transition(JavaThread* thread, oop vthread, bool 
   assert(thread->is_in_VTMS_transition(), "");
   Handle vth = Handle(thread, vthread);
 
-  if (notify_jvmti_events()) {
+  if (DoJVMTIVirtualThreadTransitions && notify_jvmti_events()) {
     bool is_virtual = java_lang_VirtualThread::is_instance(thread->jvmti_vthread());
     bool should_rebind = (is_mount && !is_virtual) || (!is_mount && is_virtual);
     if (should_rebind) {
@@ -132,7 +132,7 @@ void MountUnmountDisabler::end_transition(JavaThread* thread, oop vthread, bool 
     ml.notify_all();
   }
 
-  if (notify_jvmti_events()) {
+  if (DoJVMTIVirtualThreadTransitions && notify_jvmti_events()) {
     if (!is_mount && thread->is_carrier_thread_suspended()) {
       MonitorLocker ml(VTMSTransition_lock);
       while (!is_mount && thread->is_carrier_thread_suspended()) {
@@ -383,7 +383,7 @@ bool MountUnmountDisabler::notify_jvmti_events() {
 }
 
 void MountUnmountDisabler::set_notify_jvmti_events(bool val, bool is_onload) {
-  if (val == _notify_jvmti_events) return;
+  if (val == _notify_jvmti_events || !DoJVMTIVirtualThreadTransitions) return;
 
   // Force slow path on start/end vthread transitions for JVMTI bookkeeping.
   // 'val' is always true except with WhiteBox methods for testing purposes.

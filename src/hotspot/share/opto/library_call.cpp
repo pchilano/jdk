@@ -3061,7 +3061,7 @@ bool LibraryCallKit::inline_native_vthread_start_transition(address funcAddr, co
   Node* vt_disable = ideal.load(ideal.ctrl(), vt_disable_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, true /*require_atomic_access*/);
   Node* disabled = _gvn.transform(new AddINode(global_disable, vt_disable));
 
-  ideal.if_then(disabled, BoolTest::gt, ideal.ConI(0)); {
+  ideal.if_then(disabled, BoolTest::ne, ideal.ConI(0)); {
     sync_kit(ideal);
     Node* is_mount = is_final_transition ? ideal.ConI(0) : _gvn.transform(argument(1));
     const TypeFunc* tf = OptoRuntime::vthread_transition_Type();
