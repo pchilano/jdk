@@ -37,6 +37,7 @@ class LogStream;
 class ObjectMonitor;
 class ObjectMonitorDeflationSafepointer;
 class ThreadsList;
+class PreemptableObjectLocker;
 
 class MonitorList {
   friend class VMStructs;
@@ -220,19 +221,27 @@ public:
 // not be seen in case we attempt preemption, since we start walking
 // from the last Java anchor, so we disable it with NoPreemptMark.
 class ObjectLocker : public StackObj {
+  friend PreemptableObjectLocker;
  private:
   JavaThread* _thread;
   Handle      _obj;
   BasicLock   _lock;
   NoPreemptMark _npm;
   bool    _skip_exit;
+  ObjectLocker(Handle obj, JavaThread* current, bool is_preemptable);
  public:
-  ObjectLocker(Handle obj, TRAPS);
+  ObjectLocker(Handle obj, JavaThread* current) : ObjectLocker(obj, current, false) {};
   ~ObjectLocker();
 
   // Monitor behavior
-  void wait_uninterruptibly(TRAPS);
+  void wait_uninterruptibly() { ObjectSynchronizer::waitUninterruptibly(_obj, 0, _thread); }
   void notify_all(TRAPS)  { ObjectSynchronizer::notifyall(_obj, CHECK); }
+};
+
+class PreemptableObjectLocker : public ObjectLocker {
+ public:
+  PreemptableObjectLocker(Handle obj, TRAPS);
+  void wait_uninterruptibly(TRAPS);
 };
 
 // Interface to visit monitors

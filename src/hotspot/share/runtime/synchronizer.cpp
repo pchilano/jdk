@@ -475,28 +475,15 @@ void ObjectSynchronizer::jni_exit(oop obj, TRAPS) {
 // -----------------------------------------------------------------------------
 // Internal VM locks on java objects
 // standard constructor, allows locking failures
-ObjectLocker::ObjectLocker(Handle obj, TRAPS) : _thread(THREAD), _obj(obj),
-  _npm(_thread, _thread->at_preemptable_init() /* ignore_mark */), _skip_exit(false) {
-  assert(!_thread->preempting(), "");
-
+ObjectLocker::ObjectLocker(Handle obj, JavaThread* thread, bool is_preemptable) : _npm(thread, is_preemptable) {
+  assert(!thread->preempting(), "");
+  _thread = thread;
   _thread->check_for_valid_safepoint_state();
+  _obj = obj;
+  _skip_exit = false;
 
   if (_obj() != nullptr) {
     ObjectSynchronizer::enter(_obj, &_lock, _thread);
-
-    if (_thread->preempting()) {
-      // If preemption was cancelled we acquired the monitor after freezing
-      // the frames. Redoing the vm call later in thaw will require us to
-      // release it since the call should look like the original one. We
-      // do it in ~ObjectLocker to reduce the window of time we hold the
-      // monitor since we can't do anything useful with it now, and would
-      // otherwise just force other vthreads to preempt in case they try
-      // to acquire this monitor.
-      _skip_exit = !_thread->preemption_cancelled();
-      ObjectSynchronizer::read_monitor(_thread, _obj())->set_object_strong();
-      _thread->set_pending_preempted_exception();
-
-    }
   }
 }
 
@@ -506,8 +493,23 @@ ObjectLocker::~ObjectLocker() {
   }
 }
 
-void ObjectLocker::wait_uninterruptibly(TRAPS) {
-  ObjectSynchronizer::waitUninterruptibly(_obj, 0, _thread);
+PreemptableObjectLocker::PreemptableObjectLocker(Handle obj, TRAPS) : ObjectLocker(obj, THREAD, THREAD->at_preemptable_init()) {
+  if (_thread->preempting()) {
+    // If preemption was cancelled we acquired the monitor after freezing
+    // the frames. Redoing the vm call later in thaw will require us to
+    // release it since the call should look like the original one. We
+    // do it in ~ObjectLocker to reduce the window of time we hold the
+    // monitor since we can't do anything useful with it now, and would
+    // otherwise just force other vthreads to preempt in case they try
+    // to acquire this monitor.
+    _skip_exit = !_thread->preemption_cancelled();
+    ObjectSynchronizer::read_monitor(_thread, _obj())->set_object_strong();
+    _thread->set_pending_preempted_exception();
+  }
+}
+
+void PreemptableObjectLocker::wait_uninterruptibly(TRAPS) {
+  ObjectLocker::wait_uninterruptibly();
   if (_thread->preempting()) {
     _skip_exit = true;
     ObjectSynchronizer::read_monitor(_thread, _obj())->set_object_strong();

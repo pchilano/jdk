@@ -1006,7 +1006,7 @@ bool InstanceKlass::link_class_impl(TRAPS) {
   {
     HandleMark hm(THREAD);
     Handle h_init_lock(THREAD, init_lock());
-    ObjectLocker ol(h_init_lock, CHECK_PREEMPTABLE_false);
+    PreemptableObjectLocker ol(h_init_lock, CHECK_PREEMPTABLE_false);
     // Don't allow preemption if we link/initialize classes below,
     // since that would release this monitor while we are in the
     // middle of linking this class.
@@ -1235,7 +1235,7 @@ void InstanceKlass::initialize_impl(TRAPS) {
   // Step 1
   {
     Handle h_init_lock(THREAD, init_lock());
-    ObjectLocker ol(h_init_lock, CHECK_PREEMPTABLE);
+    PreemptableObjectLocker ol(h_init_lock, CHECK_PREEMPTABLE);
 
     // Step 2
     // If we were to use wait() instead of waitInterruptibly() then
