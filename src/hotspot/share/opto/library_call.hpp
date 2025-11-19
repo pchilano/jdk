@@ -276,8 +276,8 @@ class LibraryCallKit : public GraphKit {
 
   bool inline_native_time_funcs(address method, const char* funcName);
 
-  bool inline_native_vthread_start_transition(address funcAddr, const char* funcName, bool is_final_transition);
-  bool inline_native_vthread_end_transition(address funcAddr, const char* funcName, bool is_first_transition);
+  bool inline_native_vthread_start_transition(address funcAddr, const char* funcName);
+  bool inline_native_vthread_end_transition(address funcAddr, const char* funcName);
 
 #if INCLUDE_JVMTI
   bool inline_native_notify_jvmti_sync();

@@ -1100,16 +1100,10 @@ JVM_GetEnclosingMethodInfo(JNIEnv* env, jclass ofClass);
  * Virtual thread support.
  */
 JNIEXPORT void JNICALL
-JVM_VirtualThreadStart(JNIEnv* env, jobject vthread);
+JVM_VirtualThreadStartTransition(JNIEnv* env, jobject vthread, jboolean is_mount, jboolean is_final);
 
 JNIEXPORT void JNICALL
-JVM_VirtualThreadEnd(JNIEnv* env, jobject vthread);
-
-JNIEXPORT void JNICALL
-JVM_VirtualThreadStartTransition(JNIEnv* env, jobject vthread, jboolean is_mount);
-
-JNIEXPORT void JNICALL
-JVM_VirtualThreadEndTransition(JNIEnv* env, jobject vthread, jboolean is_mount);
+JVM_VirtualThreadEndTransition(JNIEnv* env, jobject vthread, jboolean is_mount, jboolean is_first);
 
 JNIEXPORT void JNICALL
 JVM_VirtualThreadDisableSuspend(JNIEnv* env, jclass clazz, jboolean enter);

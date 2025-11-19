@@ -552,24 +552,14 @@ JRT_BLOCK_ENTRY(void, OptoRuntime::monitor_notifyAll_C(oopDesc* obj, JavaThread*
   JRT_BLOCK_END;
 JRT_END
 
-JRT_ENTRY(void, OptoRuntime::vthread_start_C(oopDesc* vt, jboolean is_mount, JavaThread* current))
-  MountUnmountDisabler::end_transition(current, vt, true /*is_mount*/, true /*is_thread_start*/);
-JRT_END
-
-JRT_ENTRY(void, OptoRuntime::vthread_end_C(oopDesc* vt, jboolean is_mount, JavaThread* current))
+JRT_ENTRY(void, OptoRuntime::vthread_start_transition_C(oopDesc* vt, jboolean is_mount, jboolean is_final, JavaThread* current))
   java_lang_Thread::set_is_in_VTMS_transition(vt, false);
   current->set_is_in_VTMS_transition(false);
-  MountUnmountDisabler::start_transition(current, vt, false /*is_mount */, true /*is_thread_end*/);
+  MountUnmountDisabler::start_transition(current, vt, is_mount, is_final);
 JRT_END
 
-JRT_ENTRY(void, OptoRuntime::vthread_start_transition_C(oopDesc* vt, jboolean is_mount, JavaThread* current))
-  java_lang_Thread::set_is_in_VTMS_transition(vt, false);
-  current->set_is_in_VTMS_transition(false);
-  MountUnmountDisabler::start_transition(current, vt, is_mount, false /*is_thread_end*/);
-JRT_END
-
-JRT_ENTRY(void, OptoRuntime::vthread_end_transition_C(oopDesc* vt, jboolean is_mount, JavaThread* current))
-  MountUnmountDisabler::end_transition(current, vt, is_mount, false /*is_thread_start*/);
+JRT_ENTRY(void, OptoRuntime::vthread_end_transition_C(oopDesc* vt, jboolean is_mount, jboolean is_first, JavaThread* current))
+  MountUnmountDisabler::end_transition(current, vt, is_mount, is_first);
 JRT_END
 
 static const TypeFunc* make_new_instance_Type() {
@@ -589,10 +579,11 @@ static const TypeFunc* make_new_instance_Type() {
 
 static const TypeFunc* make_vthread_transition_Type() {
   // create input type (domain)
-  const Type **fields = TypeTuple::fields(2);
+  const Type **fields = TypeTuple::fields(3);
   fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // VirtualThread oop
   fields[TypeFunc::Parms+1] = TypeInt::BOOL;        // jboolean
-  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+2,fields);
+  fields[TypeFunc::Parms+2] = TypeInt::BOOL;        // jboolean
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+3,fields);
 
   // no result type needed
   fields = TypeTuple::fields(1);

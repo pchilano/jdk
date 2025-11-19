@@ -397,8 +397,6 @@ class SerializeClosure;
   template(loadClass_name,                            "loadClass")                                \
   template(startTransition_name,                      "startTransition")                          \
   template(endTransition_name,                        "endTransition")                            \
-  template(startFinalTransition_name,                 "startFinalTransition")                     \
-  template(endFirstTransition_name,                   "endFirstTransition")                       \
   template(notifyJvmtiDisableSuspend_name,            "notifyJvmtiDisableSuspend")                \
   template(doYield_name,                              "doYield")                                  \
   template(enter_name,                                "enter")                                    \

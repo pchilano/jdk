@@ -3662,24 +3662,14 @@ JVM_LEAF(jint, JVM_FindSignal(const char *name))
   return os::get_signal_number(name);
 JVM_END
 
-JVM_ENTRY(void, JVM_VirtualThreadStart(JNIEnv* env, jobject vthread))
+JVM_ENTRY(void, JVM_VirtualThreadStartTransition(JNIEnv* env, jobject vthread, jboolean is_mount, jboolean is_final))
   oop vt = JNIHandles::resolve_external_guard(vthread);
-  MountUnmountDisabler::end_transition(thread, vt, true /*is_mount*/, true /*is_thread_start*/);
+  MountUnmountDisabler::start_transition(thread, vt, is_mount, is_final);
 JVM_END
 
-JVM_ENTRY(void, JVM_VirtualThreadEnd(JNIEnv* env, jobject vthread))
+JVM_ENTRY(void, JVM_VirtualThreadEndTransition(JNIEnv* env, jobject vthread, jboolean is_mount, jboolean is_first))
   oop vt = JNIHandles::resolve_external_guard(vthread);
-  MountUnmountDisabler::start_transition(thread, vt, false /*is_mount */, true /*is_thread_end*/);
-JVM_END
-
-JVM_ENTRY(void, JVM_VirtualThreadStartTransition(JNIEnv* env, jobject vthread, jboolean is_mount))
-  oop vt = JNIHandles::resolve_external_guard(vthread);
-  MountUnmountDisabler::start_transition(thread, vt, is_mount, false /*is_thread_end*/);
-JVM_END
-
-JVM_ENTRY(void, JVM_VirtualThreadEndTransition(JNIEnv* env, jobject vthread, jboolean is_mount))
-  oop vt = JNIHandles::resolve_external_guard(vthread);
-  MountUnmountDisabler::end_transition(thread, vt, is_mount, false /*is_thread_start*/);
+  MountUnmountDisabler::end_transition(thread, vt, is_mount, is_first);
 JVM_END
 
 // Notification from VirtualThread about disabling JVMTI Suspend in a sync critical section.

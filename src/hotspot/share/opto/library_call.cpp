@@ -480,14 +480,10 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_Continuation_pin:          return inline_native_Continuation_pinning(false);
   case vmIntrinsics::_Continuation_unpin:        return inline_native_Continuation_pinning(true);
 
-  case vmIntrinsics::_vthreadEndFirstTransition:    return inline_native_vthread_end_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_start_Java()),
-                                                                                                "endFirstTransition", true);
-  case vmIntrinsics::_vthreadStartFinalTransition:  return inline_native_vthread_start_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_end_Java()),
-                                                                                                  "startFinalTransition", true);
-  case vmIntrinsics::_vthreadStartTransition:       return inline_native_vthread_start_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_start_transition_Java()),
-                                                                                                  "startTransition", false);
-  case vmIntrinsics::_vthreadEndTransition:         return inline_native_vthread_end_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_end_transition_Java()),
-                                                                                                "endTransition", false);
+  case vmIntrinsics::_vthreadStartTransition:   return inline_native_vthread_start_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_start_transition_Java()),
+                                                                                              "startTransition");
+  case vmIntrinsics::_vthreadEndTransition:     return inline_native_vthread_end_transition(CAST_FROM_FN_PTR(address, OptoRuntime::vthread_end_transition_Java()),
+                                                                                            "endTransition");
 #if INCLUDE_JVMTI
   case vmIntrinsics::_notifyJvmtiVThreadDisableSuspend: return inline_native_notify_jvmti_sync();
 #endif
@@ -3043,7 +3039,7 @@ bool LibraryCallKit::inline_native_time_funcs(address funcAddr, const char* func
   return true;
 }
 
-bool LibraryCallKit::inline_native_vthread_start_transition(address funcAddr, const char* funcName, bool is_final_transition) {
+bool LibraryCallKit::inline_native_vthread_start_transition(address funcAddr, const char* funcName) {
   Node* vt_oop = _gvn.transform(must_be_not_null(argument(0), true)); // VirtualThread this argument
   IdealKit ideal(this);
 
@@ -3063,9 +3059,10 @@ bool LibraryCallKit::inline_native_vthread_start_transition(address funcAddr, co
 
   ideal.if_then(disabled, BoolTest::ne, ideal.ConI(0)); {
     sync_kit(ideal);
-    Node* is_mount = is_final_transition ? ideal.ConI(0) : _gvn.transform(argument(1));
+    Node* is_mount = _gvn.transform(argument(1));
+    Node* is_final = _gvn.transform(argument(2));
     const TypeFunc* tf = OptoRuntime::vthread_transition_Type();
-    make_runtime_call(RC_NO_LEAF, tf, funcAddr, funcName, TypePtr::BOTTOM, vt_oop, is_mount);
+    make_runtime_call(RC_NO_LEAF, tf, funcAddr, funcName, TypePtr::BOTTOM, vt_oop, is_mount, is_final);
     ideal.sync_kit(this);
   }
   ideal.end_if();
@@ -3074,7 +3071,7 @@ bool LibraryCallKit::inline_native_vthread_start_transition(address funcAddr, co
   return true;
 }
 
-bool LibraryCallKit::inline_native_vthread_end_transition(address funcAddr, const char* funcName, bool is_first_transition) {
+bool LibraryCallKit::inline_native_vthread_end_transition(address funcAddr, const char* funcName) {
   Node* vt_oop = _gvn.transform(must_be_not_null(argument(0), true)); // VirtualThread this argument
   IdealKit ideal(this);
 
@@ -3083,9 +3080,10 @@ bool LibraryCallKit::inline_native_vthread_end_transition(address funcAddr, cons
 
   ideal.if_then(_notify_jvmti, BoolTest::eq, ideal.ConI(1)); {
     sync_kit(ideal);
-    Node* is_mount = is_first_transition ? ideal.ConI(1) : _gvn.transform(argument(1));
+    Node* is_mount = _gvn.transform(argument(1));
+    Node* is_first = _gvn.transform(argument(2));
     const TypeFunc* tf = OptoRuntime::vthread_transition_Type();
-    make_runtime_call(RC_NO_LEAF, tf, funcAddr, funcName, TypePtr::BOTTOM, vt_oop, is_mount);
+    make_runtime_call(RC_NO_LEAF, tf, funcAddr, funcName, TypePtr::BOTTOM, vt_oop, is_mount, is_first);
     ideal.sync_kit(this);
   } ideal.else_(); {
     Node* thread = ideal.thread();
