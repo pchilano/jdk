@@ -2032,6 +2032,8 @@ bool ObjectMonitor::notify_internal(JavaThread* current) {
   ObjectWaiter* iterator = dequeue_waiter();
   if (iterator != nullptr) {
     guarantee(iterator->TState == ObjectWaiter::TS_WAIT, "invariant");
+    iterator->_notifier_tid = JFR_THREAD_ID(current);
+    did_notify = true;
 
     if (iterator->is_vthread()) {
       oop vthread = iterator->vthread();
@@ -2047,61 +2049,46 @@ bool ObjectMonitor::notify_internal(JavaThread* current) {
           old_state == java_lang_VirtualThread::TIMED_WAIT) {
         java_lang_VirtualThread::cmpxchg_state(vthread, old_state, java_lang_VirtualThread::BLOCKED);
       }
-      // If we will add the vthread to the entry list below then we need to
-      // increment the counter *before* doing so.
-      // Adding to _entry_list uses Atomic::cmpxchg() which already provides
-      // a fence that prevents reordering of the stores.
       if (!JvmtiExport::should_post_monitor_waited()) {
-        // This is is now conditional as if the monitor_waited event
-        // is allowed, then a thread, even virtual, should not be moved to
-        // the entry_list, but rather unparked and let run. See the comment below.
+        // Increment counter *before* adding the vthread to the _entry_list.
+        // Adding to _entry_list uses Atomic::cmpxchg() which already provides
+        // a fence that prevents reordering of the stores.
         inc_unmounted_vthreads();
-      }
-    }
-
-    iterator->_notifier_tid = JFR_THREAD_ID(current);
-    did_notify = true;
-
-    if (!JvmtiExport::should_post_monitor_waited()) {
-      // If the monitor_waited JVMTI event is not allowed, a thread is
-      // transferred to the entry_list, and it will eventually be unparked
-      // only when it is chosen to become the successor.
-      add_to_entry_list(current, iterator);
-    } else {
-      // However, if the monitor_waited event is allowed, then
-      // the thread is set to state TS_RUN and unparked. The thread
-      // will then contend directly to reacquire the monitor and
-      // avoids being flagged as the successor. This avoids the problem
-      // of having a thread suspend whilst it is the successor.
-
-      iterator->TState = ObjectWaiter::TS_RUN;
-
-      OrderAccess::fence();
-
-      oop vthread = nullptr;
-      ParkEvent* evt;
-      if (!iterator->is_vthread()) {
-        iterator->wait_reenter_begin(this);
-        if (has_unmounted_vthreads()) {
-          iterator->_do_timed_park = true;
+        add_to_entry_list(current, iterator);
+      } else {
+        iterator->TState = ObjectWaiter::TS_RUN;
+        if (java_lang_VirtualThread::set_onWaitingList(vthread, vthread_list_head())) {
+          ParkEvent* pe = ObjectMonitor::vthread_unparker_ParkEvent();
+          pe->unpark();
         }
+      }
+    } else {
+      if (!JvmtiExport::should_post_monitor_waited()) {
+        add_to_entry_list(current, iterator);
+        // Read counter *after* adding the thread to the _entry_list.
+        // Adding to _entry_list uses Atomic::cmpxchg() which already provides
+        // a fence that prevents this load from floating up previous store.
+        if (has_unmounted_vthreads()) {
+          // Wake up the thread to alleviate some deadlock cases where the successor
+          // that will be picked up when this thread releases the monitor is an unmounted
+          // virtual thread that cannot run due to having run out of carriers. Upon waking
+          // up, the thread will call reenter_internal() which will use timed-park in case
+          // there is contention and there are still vthreads in the _entry_list.
+          // If the target was interrupted or the wait timed-out at the same time, it could
+          // have reached reenter_internal and read a false value of has_unmounted_vthreads()
+          // before we added it to the _entry_list above. To deal with that case, we set _do_timed_park
+          // which will be read by the target on the next loop iteration in reenter_internal.
+          iterator->_do_timed_park = true;
+          JavaThread* t = iterator->thread();
+          t->_ParkEvent->unpark();
+        }
+        iterator->wait_reenter_begin(this);
+      } else {
+        iterator->TState = ObjectWaiter::TS_RUN;
         JavaThread* t = iterator->thread();
         assert(t != nullptr, "");
-        evt = t->_ParkEvent;
-      } else {
-        vthread = iterator->vthread();
-        assert(vthread != nullptr, "");
-        evt = ObjectMonitor::vthread_unparker_ParkEvent();
+        t->_ParkEvent->unpark();
       }
-
-      if (vthread == nullptr) {
-        // Platform thread case.
-        evt->unpark();
-      } else if (java_lang_VirtualThread::set_onWaitingList(vthread, vthread_list_head())) {
-        // Virtual thread case.
-        evt->unpark();
-      }
-      return did_notify;
     }
 
     // _wait_set_lock protects the wait queue, not the entry_list.  We could
@@ -2111,28 +2098,6 @@ bool ObjectMonitor::notify_internal(JavaThread* current) {
     // is the only thread that grabs _wait_set_lock.  There's almost no contention
     // on _wait_set_lock so it's not profitable to reduce the length of the
     // critical section.
-
-    if (!iterator->is_vthread()) {
-      iterator->wait_reenter_begin(this);
-
-      // Read counter *after* adding the thread to the _entry_list.
-      // Adding to _entry_list uses Atomic::cmpxchg() which already provides
-      // a fence that prevents this load from floating up previous store.
-      if (has_unmounted_vthreads()) {
-        // Wake up the thread to alleviate some deadlock cases where the successor
-        // that will be picked up when this thread releases the monitor is an unmounted
-        // virtual thread that cannot run due to having run out of carriers. Upon waking
-        // up, the thread will call reenter_internal() which will use timed-park in case
-        // there is contention and there are still vthreads in the _entry_list.
-        // If the target was interrupted or the wait timed-out at the same time, it could
-        // have reached reenter_internal and read a false value of has_unmounted_vthreads()
-        // before we added it to the _entry_list above. To deal with that case, we set _do_timed_park
-        // which will be read by the target on the next loop iteration in reenter_internal.
-        iterator->_do_timed_park = true;
-        JavaThread* t = iterator->thread();
-        t->_ParkEvent->unpark();
-      }
-    }
   }
   return did_notify;
 }
