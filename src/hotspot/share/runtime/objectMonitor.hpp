@@ -370,7 +370,7 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
   bool      try_enter(JavaThread* current, bool check_for_recursion = true);
   bool      spin_enter(JavaThread* current);
   void      enter_with_contention_mark(JavaThread* current, ObjectMonitorContentionMark& contention_mark, bool post_jvmti_events = true);
-  void      exit(JavaThread* current, bool not_suspended = true);
+  void      exit(JavaThread* current, bool suspended = false);
   bool      resume_operation(JavaThread* current, ObjectWaiter* node, ContinuationWrapper& cont);
   void      wait(jlong millis, bool interruptible, TRAPS);
   void      notify(TRAPS);
@@ -412,7 +412,7 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
 
   bool      try_spin(JavaThread* current);
   bool      short_fixed_spin(JavaThread* current, int spin_count, bool adapt);
-  void      exit_epilog(JavaThread* current, ObjectWaiter* Wakee);
+  void      exit_epilog(JavaThread* current, ObjectWaiter* Wakee, bool suspended);
 
  public:
   // Deflation support

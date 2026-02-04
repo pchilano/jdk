@@ -332,7 +332,7 @@ void ObjectMonitor::ExitOnSuspend::operator()(JavaThread* current) {
     _om->_recursions = 0;
     _om->clear_successor();
     // Don't need a full fence after clearing successor here because of the call to exit().
-    _om->exit(current, false /* not_suspended */);
+    _om->exit(current, true /* suspended */);
     _om_exited = true;
 
     current->set_current_pending_monitor(_om);
@@ -1509,7 +1509,7 @@ void ObjectMonitor::unlink_after_acquire(JavaThread* current, ObjectWaiter* curr
 // structured the code so the windows are short and the frequency
 // of such futile wakups is low.
 
-void ObjectMonitor::exit(JavaThread* current, bool not_suspended) {
+void ObjectMonitor::exit(JavaThread* current, bool suspended) {
   if (!has_owner(current)) {
     // Apparent unbalanced locking ...
     // Naively we'd like to throw IllegalMonitorStateException.
@@ -1539,7 +1539,7 @@ void ObjectMonitor::exit(JavaThread* current, bool not_suspended) {
 #if INCLUDE_JFR
   // get the owner's thread id for the MonitorEnter event
   // if it is enabled and the thread isn't suspended
-  if (not_suspended && EventJavaMonitorEnter::is_enabled()) {
+  if (!suspended && EventJavaMonitorEnter::is_enabled()) {
     _previous_owner_tid = JFR_THREAD_ID(current);
   }
 #endif
@@ -1569,7 +1569,7 @@ void ObjectMonitor::exit(JavaThread* current, bool not_suspended) {
         // Given all that, we have to tolerate the circumstance where "w" is
         // associated with current.
         assert(w->TState == ObjectWaiter::TS_ENTER, "invariant");
-        exit_epilog(current, w);
+        exit_epilog(current, w, suspended);
         return;
       }
     }
@@ -1627,7 +1627,7 @@ void ObjectMonitor::exit(JavaThread* current, bool not_suspended) {
   }
 }
 
-void ObjectMonitor::exit_epilog(JavaThread* current, ObjectWaiter* Wakee) {
+void ObjectMonitor::exit_epilog(JavaThread* current, ObjectWaiter* Wakee, bool suspended) {
   assert(has_owner(current), "invariant");
 
   // Exit protocol:
@@ -1644,6 +1644,12 @@ void ObjectMonitor::exit_epilog(JavaThread* current, ObjectWaiter* Wakee) {
     Trigger = t->_ParkEvent;
     set_successor(t);
   } else {
+    if (suspended) {
+      // There could be an ongoing safepoint/handshake operation.
+      // Process them, except suspends, before touching oops.
+      ThreadBlockInVM tbivm(current);
+    }
+    assert_not_at_safepoint();
     vthread = Wakee->vthread();
     assert(vthread != nullptr, "");
     Trigger = ObjectMonitor::vthread_unparker_ParkEvent();
