@@ -327,15 +327,16 @@ void ObjectMonitor::set_object_strong() {
   }
 }
 
-void ObjectMonitor::ExitOnSuspend::operator()(JavaThread* current) {
-  if (current->is_suspended()) {
+ObjectMonitor::ExitOnSuspend::~ExitOnSuspend() {
+  if (_current->is_suspended()) {
     _om->_recursions = 0;
     _om->clear_successor();
     // Don't need a full fence after clearing successor here because of the call to exit().
-    _om->exit(current, false /* not_suspended */);
+    _om->exit(_current, false /* not_suspended */);
     _om_exited = true;
-
-    current->set_current_pending_monitor(_om);
+    _current->set_current_pending_monitor(_om);
+    // Process suspend request now
+    SafepointMechanism::process_if_requested(_current, true /*allow_suspend*/, false /*check_async_exception*/);
   }
 }
 
@@ -590,9 +591,9 @@ void ObjectMonitor::enter_with_contention_mark(JavaThread* current, ObjectMonito
     assert(current->thread_state() == _thread_in_vm, "invariant");
 
     for (;;) {
-      ExitOnSuspend eos(this);
+      bool om_exited = false;
       {
-        ThreadBlockInVMPreprocess<ExitOnSuspend> tbivs(current, eos, true /* allow_suspend */);
+        ExitOnSuspend eos(current, this, om_exited);
         enter_internal(current);
         current->set_current_pending_monitor(nullptr);
         // We can go to a safepoint at the end of this block. If we
@@ -604,7 +605,7 @@ void ObjectMonitor::enter_with_contention_mark(JavaThread* current, ObjectMonito
         // and set the OM as pending, the thread will not be reported as
         // having "-locked" the monitor.
       }
-      if (!eos.exited()) {
+      if (!om_exited) {
         // ExitOnSuspend did not exit the OM
         assert(has_owner(current), "invariant");
         break;
@@ -938,7 +939,7 @@ const char* ObjectMonitor::is_busy_to_string(stringStream* ss) {
 }
 
 void ObjectMonitor::enter_internal(JavaThread* current) {
-  assert(current->thread_state() == _thread_blocked, "invariant");
+  assert(current->thread_state() == _thread_in_vm, "invariant");
 
   // Try the lock - TATAS
   if (try_lock(current) == TryLockResult::Success) {
@@ -1014,16 +1015,19 @@ void ObjectMonitor::enter_internal(JavaThread* current) {
     }
     assert(!has_owner(current), "invariant");
 
-    // park self
-    if (do_timed_parked) {
-      current->_ParkEvent->park(recheck_interval);
-      // Increase the recheck_interval, but clamp the value.
-      recheck_interval *= 8;
-      if (recheck_interval > MAX_RECHECK_INTERVAL) {
-        recheck_interval = MAX_RECHECK_INTERVAL;
+    {
+      ThreadBlockInVM tbivm(current);
+      // park self
+      if (do_timed_parked) {
+        current->_ParkEvent->park(recheck_interval);
+        // Increase the recheck_interval, but clamp the value.
+        recheck_interval *= 8;
+        if (recheck_interval > MAX_RECHECK_INTERVAL) {
+          recheck_interval = MAX_RECHECK_INTERVAL;
+        }
+      } else {
+        current->_ParkEvent->park();
       }
-    } else {
-      current->_ParkEvent->park();
     }
 
     if (try_lock(current) == TryLockResult::Success) {
@@ -1094,7 +1098,7 @@ void ObjectMonitor::enter_internal(JavaThread* current) {
 
 void ObjectMonitor::reenter_internal(JavaThread* current, ObjectWaiter* currentNode) {
   assert(current != nullptr, "invariant");
-  assert(current->thread_state() == _thread_blocked, "invariant");
+  assert(current->thread_state() == _thread_in_vm, "invariant");
   assert(currentNode != nullptr, "invariant");
   assert(currentNode->_thread == current, "invariant");
   assert(_waiters > 0, "invariant");
@@ -1132,6 +1136,7 @@ void ObjectMonitor::reenter_internal(JavaThread* current, ObjectWaiter* currentN
     }
 
     {
+      ThreadBlockInVM tbivm(current);
       OSThreadContendState osts(current->osthread());
       if (do_timed_parked) {
         current->_ParkEvent->park(recheck_interval);
@@ -1644,6 +1649,7 @@ void ObjectMonitor::exit_epilog(JavaThread* current, ObjectWaiter* Wakee) {
     Trigger = t->_ParkEvent;
     set_successor(t);
   } else {
+    assert_not_at_safepoint();
     vthread = Wakee->vthread();
     assert(vthread != nullptr, "");
     Trigger = ObjectMonitor::vthread_unparker_ParkEvent();
@@ -1962,9 +1968,9 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
       // This means the thread has been un-parked and added to the entry_list
       // in notify_internal, i.e. notified while waiting.
       guarantee(v == ObjectWaiter::TS_ENTER, "invariant");
-      ExitOnSuspend eos(this);
+      bool om_exited = false;
       {
-        ThreadBlockInVMPreprocess<ExitOnSuspend> tbivs(current, eos, true /* allow_suspend */);
+        ExitOnSuspend eos(current, this, om_exited);
         reenter_internal(current, &node);
         // We can go to a safepoint at the end of this block. If we
         // do a thread dump during that safepoint, then this thread will show
@@ -1975,7 +1981,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
         // and set the OM as pending, the thread will not be reported as
         // having "-locked" the monitor.
       }
-      if (eos.exited()) {
+      if (om_exited) {
         // ExitOnSuspend exit the OM
         assert(!has_owner(current), "invariant");
         guarantee(node.TState == ObjectWaiter::TS_RUN, "invariant");
@@ -2396,6 +2402,8 @@ bool ObjectMonitor::short_fixed_spin(JavaThread* current, int spin_count, bool a
 
 // Spinning: Fixed frequency (100%), vary duration
 bool ObjectMonitor::try_spin(JavaThread* current) {
+  assert(current->thread_state() == _thread_in_vm || current->thread_state() == _thread_in_Java, "");
+  bool from_java = current->thread_state() == _thread_in_Java;
 
   // Dumb, brutal spin.  Good for comparative measurements against adaptive spinning.
   int knob_fixed_spin = Knob_FixedSpin;  // 0 (don't spin: default), 2000 good test
@@ -2426,6 +2434,13 @@ bool ObjectMonitor::try_spin(JavaThread* current) {
   int ctr = _SpinDuration;
   if (ctr <= 0) return false;
 
+  // Guarantee that we at least poll once if main
+  // spinning loop is executed.
+  if (SafepointMechanism::local_poll_armed(current)) {
+    if (from_java) return false;
+    ThreadBlockInVM tbivm(current);
+  }
+
   // We're good to spin ... spin ingress.
   // CONSIDER: use Prefetch::write() to avoid RTS->RTO upgrades
   // when preparing to LD...CAS _owner, etc and the CAS is likely
@@ -2452,11 +2467,9 @@ bool ObjectMonitor::try_spin(JavaThread* current) {
     // This is in keeping with the "no loitering in runtime" rule.
     // We periodically check to see if there's a safepoint pending.
     if ((ctr & 0xFF) == 0) {
-      // Can't call SafepointMechanism::should_process() since that
-      // might update the poll values and we could be in a thread_blocked
-      // state here which is not allowed so just check the poll.
       if (SafepointMechanism::local_poll_armed(current)) {
-        break;
+        if (from_java) break;
+        ThreadBlockInVM tbivm(current);
       }
       SpinPause();
     }

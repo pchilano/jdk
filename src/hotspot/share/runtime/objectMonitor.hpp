@@ -353,12 +353,13 @@ class ObjectMonitor : public CHeapObj<mtObjectMonitor> {
 
   class ExitOnSuspend {
    protected:
+    JavaThread* _current;
     ObjectMonitor* _om;
-    bool _om_exited;
+    bool& _om_exited;
    public:
-    ExitOnSuspend(ObjectMonitor* om) : _om(om), _om_exited(false) {}
-    void operator()(JavaThread* current);
-    bool exited() { return _om_exited; }
+    ExitOnSuspend(JavaThread* current, ObjectMonitor* om, bool& om_exited)
+     : _current(current), _om(om), _om_exited(om_exited) { assert(!_om_exited, ""); }
+    ~ExitOnSuspend();
   };
 
   bool      enter_is_async_deflating();
