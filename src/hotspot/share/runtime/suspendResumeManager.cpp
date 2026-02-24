@@ -64,6 +64,7 @@ public:
     _did_suspend = target->suspend_resume_manager()->suspend_with_handshake(_register_vthread_SR);
   }
   bool did_suspend() { return _did_suspend; }
+  virtual bool check_jni_critical() { return true; }
 };
 
 void SuspendResumeManager::set_suspended(bool is_suspend, bool register_vthread_SR) {

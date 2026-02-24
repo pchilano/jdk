@@ -52,6 +52,7 @@ class HandshakeClosure : public ThreadClosure, public CHeapObj<mtThread> {
   virtual bool is_async()                          { return false; }
   virtual bool is_suspend()                        { return false; }
   virtual bool is_async_exception()                { return false; }
+  virtual bool check_jni_critical()                { return false; }
   virtual void do_thread(Thread* thread) = 0;
 };
 

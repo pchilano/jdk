@@ -85,6 +85,7 @@ class HandshakeOperation : public CHeapObj<mtThread> {
   bool is_async()                  { return _handshake_cl->is_async(); }
   bool is_suspend()                { return _handshake_cl->is_suspend(); }
   bool is_async_exception()        { return _handshake_cl->is_async_exception(); }
+  bool check_jni_critical()        { return _handshake_cl->check_jni_critical(); }
 };
 
 class AsyncHandshakeOperation : public HandshakeOperation {
@@ -475,14 +476,8 @@ void Handshake::execute(AsyncHandshakeClosure* hs_cl, JavaThread* target) {
 static bool non_self_executable_filter(HandshakeOperation* op) {
   return !op->is_async();
 }
-static bool no_async_exception_filter(HandshakeOperation* op) {
-  return !op->is_async_exception();
-}
 static bool async_exception_filter(HandshakeOperation* op) {
   return op->is_async_exception();
-}
-static bool no_suspend_no_async_exception_filter(HandshakeOperation* op) {
-  return !op->is_suspend() && !op->is_async_exception();
 }
 static bool all_ops_filter(HandshakeOperation* op) {
   return true;
@@ -526,13 +521,18 @@ HandshakeOperation* HandshakeState::get_op_for_self(bool allow_suspend, bool che
     allow_suspend = false;
   }
 #endif
-  if (!allow_suspend) {
-    return _queue.peek(no_suspend_no_async_exception_filter);
-  } else if (check_async_exception && !_async_exceptions_blocked) {
-    return _queue.peek();
-  } else {
-    return _queue.peek(no_async_exception_filter);
-  }
+
+  auto op_filter = [&](HandshakeOperation* op) {
+    if (!allow_suspend && op->is_suspend()) {
+      return false;
+    } else if (!check_async_exception && op->is_async_exception()) {
+      return false;
+    } else if (_handshakee->in_critical() && op->check_jni_critical()) {
+      return false;
+    }
+    return true;
+  };
+  return _queue.peek(op_filter);
 }
 
 bool HandshakeState::has_operation(bool allow_suspend, bool check_async_exception) {
