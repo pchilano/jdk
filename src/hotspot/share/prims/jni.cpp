@@ -2835,6 +2835,8 @@ JNI_ENTRY(void*, jni_GetPrimitiveArrayCritical(JNIEnv *env, jarray array, jboole
   Handle a(thread, JNIHandles::resolve_non_null(array));
   assert(a->is_typeArray(), "just checking");
 
+  if (UseNewCode) os::naked_short_sleep(15);
+
   // We must defer JVM TI suspension while we have access to a Java object
   // as it could surprise the debugger if we mutate it concurrently whilst
   // logically suspended.

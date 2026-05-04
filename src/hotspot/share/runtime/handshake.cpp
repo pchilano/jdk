@@ -699,10 +699,12 @@ HandshakeState::ProcessResult HandshakeState::try_process(HandshakeOperation* ma
     return HandshakeState::_not_safe;
   }
 
+  if (UseNewCode) os::naked_short_sleep(15);
   // Claim the mutex if there still an enabled operation to be executed.
   if (!claim_handshake()) {
     return HandshakeState::_claim_failed;
   }
+  if (UseNewCode) os::naked_short_sleep(10);
 
   // If we own the mutex at this point and while owning the mutex we
   // can observe a safe state the thread cannot possibly continue without
