@@ -1227,13 +1227,19 @@ JvmtiEnv::StopThread(jthread thread, jobject exception) {
   if (err != JVMTI_ERROR_NONE) {
     return err;
   }
+
+  if (is_virtual && java_thread->on_monitor_waited_event()) {
+    // The exception might end up being thrown in the carrier
+    // so skip this case.
+    return JVMTI_ERROR_OPAQUE_FRAME;
+  }
+
   oop e = JNIHandles::resolve_external_guard(exception);
   NULL_CHECK(e, JVMTI_ERROR_NULL_POINTER);
 
-  JavaThread::send_async_exception(java_thread, e);
+  bool result = JavaThread::send_async_exception(java_thread, e);
 
-  return JVMTI_ERROR_NONE;
-
+  return result ? JVMTI_ERROR_NONE : JVMTI_ERROR_OPAQUE_FRAME;
 } /* end StopThread */
 
 

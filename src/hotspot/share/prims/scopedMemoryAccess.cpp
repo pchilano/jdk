@@ -211,7 +211,8 @@ public:
       // async exceptions.
       OopHandle session(Universe::vm_global(), JNIHandles::resolve(_session));
       OopHandle error(Universe::vm_global(), JNIHandles::resolve(_error));
-      jt->install_async_exception(new ScopedAsyncExceptionHandshakeClosure(session, error, _async_exceptions));
+      bool result = jt->install_async_exception(new ScopedAsyncExceptionHandshakeClosure(session, error, _async_exceptions));
+      assert(result, "should have installed the exception");
     } else if (!in_scoped) {
       frame last_frame = get_last_frame(jt);
       if (last_frame.is_compiled_frame() && last_frame.can_be_deoptimized()) {

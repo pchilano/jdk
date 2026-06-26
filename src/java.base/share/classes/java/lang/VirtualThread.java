@@ -543,6 +543,7 @@ final class VirtualThread extends BaseVirtualThread {
      * the continuation continues.
      */
     @Hidden
+    @JvmtiHideEvents
     private boolean yieldContinuation() {
         startTransition(/*mount*/false);
         try {
