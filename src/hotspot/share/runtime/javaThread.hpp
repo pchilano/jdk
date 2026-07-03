@@ -236,10 +236,9 @@ class JavaThread: public Thread {
 
   void handle_async_exception(oop java_throwable);
  public:
-  void install_async_exception(AsyncExceptionHandshakeClosure* aec = nullptr);
+  void install_async_exception(AsyncExceptionHandshakeClosure* aec);
   bool has_async_exception_condition();
   inline void set_pending_unsafe_access_error();
-  static void send_async_exception(JavaThread* jt, oop java_throwable);
 
   class NoAsyncExceptionDeliveryMark : public StackObj {
     friend JavaThread;
@@ -339,6 +338,7 @@ class JavaThread: public Thread {
   int                   _jvmti_events_disabled;          // JVMTI events disabled manually
   bool                  _on_monitor_waited_event;        // Avoid callee arg processing for enterSpecial when posting waited event
   ObjectMonitor*        _contended_entered_monitor;      // Monitor for pending monitor_contended_entered callback
+  bool                  _allow_stop_thread_processing;   // Allow processing of StopThreadAsyncClosure
 #endif
 
   // JNI attach states:
@@ -706,6 +706,9 @@ public:
 #endif
 
   void set_contended_entered_monitor(ObjectMonitor* val) NOT_JVMTI_RETURN JVMTI_ONLY({ _contended_entered_monitor = val; })
+
+  bool allow_stop_thread_processing() const { return _allow_stop_thread_processing; }
+  void set_allow_stop_thread_processing(bool b) { _allow_stop_thread_processing = b; }
 
   // Support for object deoptimization and JFR suspension
   void handle_special_runtime_exit_condition();
@@ -1337,5 +1340,18 @@ public:
     _thread->set_throwing_unsafe_access_error(_prev);
   }
 };
+
+#if INCLUDE_JVMTI
+class AllowStopThreadProcessing : public StackObj {
+  JavaThread* _thread;
+public:
+  AllowStopThreadProcessing(JavaThread* thread) : _thread(thread) {
+    _thread->set_allow_stop_thread_processing(true);
+  }
+  ~AllowStopThreadProcessing() {
+    _thread->set_allow_stop_thread_processing(false);
+  }
+};
+#endif // INCLUDE_JVMTI
 
 #endif // SHARE_RUNTIME_JAVATHREAD_HPP

@@ -475,6 +475,11 @@ void Handshake::execute(AsyncHandshakeClosure* hs_cl, JavaThread* target) {
 
 // Filters
 
+// op is enabled
+static bool default_filter(HandshakeOperation* op) {
+  return op->is_enabled();
+}
+
 // op is enabled and can be executed by the current thread rather than the target.
 static bool non_self_executable_filter(HandshakeOperation* op) {
   return !op->is_async() && op->is_enabled();
@@ -541,7 +546,7 @@ HandshakeOperation* HandshakeState::get_op_for_self(bool allow_suspend, bool che
   if (!allow_suspend) {
     return _queue.peek(no_suspend_no_async_exception_filter);
   } else if (check_async_exception && !_async_exceptions_blocked) {
-    return _queue.peek();
+    return _queue.peek(default_filter);
   } else {
     return _queue.peek(no_async_exception_filter);
   }

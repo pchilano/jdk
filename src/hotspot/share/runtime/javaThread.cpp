@@ -347,6 +347,7 @@ JavaThread::JavaThread(MemTag mem_tag) :
   _jvmti_events_disabled(0),
   _on_monitor_waited_event(false),
   _contended_entered_monitor(nullptr),
+  _allow_stop_thread_processing(false),
 #endif
   _jni_attach_state(_not_attaching_via_jni),
   _is_in_internal_oome_mark(false),
@@ -930,6 +931,7 @@ void JavaThread::handle_special_runtime_exit_condition() {
 
 // Asynchronous exceptions support
 //
+
 void JavaThread::handle_async_exception(oop java_throwable) {
   assert(java_throwable != nullptr, "should have an _async_exception to throw");
   assert(!is_at_poll_safepoint(), "should have never called this method");
@@ -971,6 +973,9 @@ void JavaThread::handle_async_exception(oop java_throwable) {
 }
 
 void JavaThread::install_async_exception(AsyncExceptionHandshakeClosure* aehc) {
+  DEBUG_ONLY(Thread* current = Thread::current();)
+  assert(is_handshake_safe_for(current), "must be");
+
   // Do not throw asynchronous exceptions against the compiler thread
   // or if the thread is already exiting.
   if (!can_call_java() || is_exiting()) {
@@ -994,28 +999,6 @@ void JavaThread::install_async_exception(AsyncExceptionHandshakeClosure* aehc) {
     // Interrupt thread so it will wake up from a potential wait()/sleep()/park()
     this->interrupt();
   }
-}
-
-class InstallAsyncExceptionHandshakeClosure : public HandshakeClosure {
-  AsyncExceptionHandshakeClosure* _aehc;
-public:
-  InstallAsyncExceptionHandshakeClosure(AsyncExceptionHandshakeClosure* aehc) :
-    HandshakeClosure("InstallAsyncException"), _aehc(aehc) {}
-  ~InstallAsyncExceptionHandshakeClosure() {
-    // If InstallAsyncExceptionHandshakeClosure was never executed we need to clean up _aehc.
-    delete _aehc;
-  }
-  void do_thread(Thread* thr) {
-    JavaThread* target = JavaThread::cast(thr);
-    target->install_async_exception(_aehc);
-    _aehc = nullptr;
-  }
-};
-
-void JavaThread::send_async_exception(JavaThread* target, oop java_throwable) {
-  OopHandle e(Universe::vm_global(), java_throwable);
-  InstallAsyncExceptionHandshakeClosure iaeh(new AsyncExceptionHandshakeClosure(e));
-  Handshake::execute(&iaeh, target);
 }
 
 bool JavaThread::is_in_vthread_transition() const {

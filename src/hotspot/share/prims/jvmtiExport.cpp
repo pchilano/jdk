@@ -2951,13 +2951,13 @@ void JvmtiExport::vthread_post_monitor_waited(JavaThread *current, ObjectMonitor
   Handle vthread(current, current->vthread());
 
   // Finish the VTMS transition temporarily to post the event.
-  MountUnmountDisabler::end_transition(current, vthread(), true /*is_mount*/, false /*is_thread_start*/);
+  MountUnmountDisabler::end_transition(current, vthread(), true /*is_mount*/, false /*is_thread_start*/, false /*to_java*/);
 
   // Post event.
   JvmtiExport::post_monitor_waited(current, obj_mntr, timed_out);
 
   // Go back to VTMS transition state.
-  MountUnmountDisabler::start_transition(current, vthread(), false /*is_mount*/, false /*is_thread_start*/);
+  MountUnmountDisabler::start_transition(current, vthread(), false /*is_mount*/, false /*is_thread_start*/, false /*from_java*/);
 }
 
 void JvmtiExport::post_vm_object_alloc(JavaThread *thread, oop object) {

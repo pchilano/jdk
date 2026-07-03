@@ -176,6 +176,10 @@ JvmtiThreadState::~JvmtiThreadState()   {
     java_lang_Thread::set_jvmti_thread_state(get_thread_oop(), nullptr);
   }
   _thread_oop_h.release(JvmtiExport::jvmti_oop_storage());
+
+  if (has_pending_async_exception()) {
+    clear_pending_async_exception();
+  }
 }
 
 
@@ -299,6 +303,26 @@ JvmtiVTSuspender::is_vthread_suspended(int64_t thread_id) {
 bool
 JvmtiVTSuspender::is_vthread_suspended(oop vt) {
   return is_vthread_suspended(java_lang_Thread::thread_id(vt));
+}
+
+bool JvmtiThreadState::has_pending_async_exception() const {
+  return !_pending_async_exception.is_empty();
+}
+
+oop JvmtiThreadState::pending_async_exception() const {
+  assert(has_pending_async_exception(), "no pending async exception");
+  return _pending_async_exception.resolve();
+}
+
+void JvmtiThreadState::set_pending_async_exception(oop o) {
+  assert(o != nullptr, "must be");
+  assert(!has_pending_async_exception(), "async exception already pending");
+  _pending_async_exception = OopHandle(JvmtiExport::jvmti_oop_storage(), o);
+}
+
+void JvmtiThreadState::clear_pending_async_exception() {
+  assert(has_pending_async_exception(), "no pending async exception");
+  _pending_async_exception.release(JvmtiExport::jvmti_oop_storage());
 }
 
 void JvmtiThreadState::add_env(JvmtiEnvBase *env) {

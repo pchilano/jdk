@@ -68,7 +68,7 @@ class UnmountBeginMark : public StackObj {
     _vthread(t, t->vthread()), _current(t), _result(freeze_pinned_native), _failed(false) {
     assert(!_current->is_in_vthread_transition(), "must be");
 
-    MountUnmountDisabler::start_transition(_current, _vthread(), false /*is_mount*/, false /*is_thread_start*/);
+    MountUnmountDisabler::start_transition(_current, _vthread(), false /*is_mount*/, false /*is_thread_start*/, false /*from_java*/);
 
     // Don't preempt if there is a pending popframe or earlyret operation. This can
     // be installed in in process_at_transition_start() so we need to check it here.
@@ -93,7 +93,7 @@ class UnmountBeginMark : public StackObj {
 
     if (_result != freeze_ok) {
       // Undo transition
-      MountUnmountDisabler::end_transition(_current, _vthread(), true /*is_mount*/, false /*is_thread_start*/);
+      MountUnmountDisabler::end_transition(_current, _vthread(), true /*is_mount*/, false /*is_thread_start*/, false /*to_java*/);
     }
   }
   void set_result(freeze_result res) { _result = res; }

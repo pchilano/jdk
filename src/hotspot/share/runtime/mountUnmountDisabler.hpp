@@ -76,8 +76,8 @@ class MountUnmountDisabler : public AnyObj {
   static void inc_active_disablers();
   static void dec_active_disablers();
 
-  static void start_transition(JavaThread* thread, oop vthread, bool is_mount, bool is_thread_end);
-  static void end_transition(JavaThread* thread, oop vthread, bool is_mount, bool is_thread_start);
+  static void start_transition(JavaThread* thread, oop vthread, bool is_mount, bool is_thread_end, bool from_java = true);
+  static void end_transition(JavaThread* thread, oop vthread, bool is_mount, bool is_thread_start, bool to_java = true);
 
   static bool is_start_transition_disabled(JavaThread* thread, oop vthread);
 

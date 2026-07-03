@@ -30,6 +30,7 @@
 #include "runtime/javaThread.hpp"
 #include "runtime/jniHandles.hpp"
 #include "runtime/mountUnmountDisabler.hpp"
+#include "runtime/safepointMechanism.inline.hpp"
 #include "runtime/threadSMR.hpp"
 
 volatile int MountUnmountDisabler::_global_vthread_transition_disable_count = 0;
@@ -43,9 +44,10 @@ class JVMTIStartTransition : public StackObj {
   Handle _vthread;
   bool _is_mount;
   bool _is_thread_end;
+  bool _from_java;
  public:
-  JVMTIStartTransition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_end) :
-    _current(current), _vthread(current, vthread), _is_mount(is_mount), _is_thread_end(is_thread_end) {
+  JVMTIStartTransition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_end, bool from_java = true) :
+    _current(current), _vthread(current, vthread), _is_mount(is_mount), _is_thread_end(is_thread_end), _from_java(from_java) {
     assert(DoJVMTIVirtualThreadTransitions || !JvmtiExport::can_support_virtual_threads(), "sanity check");
     if (DoJVMTIVirtualThreadTransitions && MountUnmountDisabler::notify_jvmti_events()) {
       // post VirtualThreadUnmount event before VirtualThreadEnd
@@ -54,6 +56,21 @@ class JVMTIStartTransition : public StackObj {
       }
       if (_is_thread_end && JvmtiExport::should_post_vthread_end()) {
         JvmtiExport::post_vthread_end((jthread)_vthread.raw_value());
+      }
+      if (!_is_mount &&_from_java && _current->has_async_exception_condition()) {
+        // The async exception was deferred and now we found ourselves
+        // at a transition. If this is the last unmount clear the exception,
+        // otherwise we save it until the next mount transition.
+        JvmtiThreadState* state;
+        if (_is_thread_end || (state = JvmtiThreadState::state_for(_current)) == nullptr) {
+          _current->handshake_state()->clean_async_exception_operation();
+        } else {
+          AllowStopThreadProcessing astp(_current);
+          SafepointMechanism::process_if_requested_with_exit_check(_current, true /* check asyncs */);
+          assert(_current->has_pending_exception(), "invariant");
+          state->set_pending_async_exception(_current->pending_exception());
+          _current->clear_pending_exception();
+        }
       }
     }
   }
@@ -76,9 +93,10 @@ class JVMTIEndTransition : public StackObj {
   Handle _vthread;
   bool _is_mount;
   bool _is_thread_start;
+  bool _to_java;
  public:
-  JVMTIEndTransition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_start) :
-    _current(current), _vthread(current, vthread), _is_mount(is_mount), _is_thread_start(is_thread_start) {
+  JVMTIEndTransition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_start, bool to_java) :
+    _current(current), _vthread(current, vthread), _is_mount(is_mount), _is_thread_start(is_thread_start), _to_java(to_java) {
     assert(DoJVMTIVirtualThreadTransitions || !JvmtiExport::can_support_virtual_threads(), "sanity check");
     if (DoJVMTIVirtualThreadTransitions && MountUnmountDisabler::notify_jvmti_events()) {
       if (_is_mount) {
@@ -115,6 +133,11 @@ class JVMTIEndTransition : public StackObj {
       if (_is_mount && JvmtiExport::should_post_vthread_mount()) {
         JvmtiExport::post_vthread_mount((jthread)_vthread.raw_value());
       }
+      JvmtiThreadState* state = java_lang_Thread::jvmti_thread_state(_vthread());
+      if (_is_mount && _to_java && state != nullptr && state->has_pending_async_exception()) {
+        _current->set_pending_exception(state->pending_async_exception(), __FILE__, __LINE__);
+        state->clear_pending_async_exception();
+      }
     }
   }
 };
@@ -133,11 +156,11 @@ bool MountUnmountDisabler::is_start_transition_disabled(JavaThread* thread, oop 
                         (JvmtiVTSuspender::is_vthread_suspended(java_lang_Thread::thread_id(vthread)) || thread->is_suspended())));
 }
 
-void MountUnmountDisabler::start_transition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_end) {
+void MountUnmountDisabler::start_transition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_end, bool from_java) {
   assert(!java_lang_Thread::is_in_vthread_transition(vthread), "");
   assert(!current->is_in_vthread_transition(), "");
   Handle vth = Handle(current, vthread);
-  JVMTI_ONLY(JVMTIStartTransition jst(current, vthread, is_mount, is_thread_end);)
+  JVMTI_ONLY(JVMTIStartTransition jst(current, vthread, is_mount, is_thread_end, from_java);)
 
   java_lang_Thread::set_is_in_vthread_transition(vth(), true);
   current->set_is_in_vthread_transition(true);
@@ -170,11 +193,11 @@ void MountUnmountDisabler::start_transition(JavaThread* current, oop vthread, bo
   // This pairs with the release barrier in xx_enable_for_one()/xx_enable_for_all().
 }
 
-void MountUnmountDisabler::end_transition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_start) {
+void MountUnmountDisabler::end_transition(JavaThread* current, oop vthread, bool is_mount, bool is_thread_start, bool to_java) {
   assert(java_lang_Thread::is_in_vthread_transition(vthread), "");
   assert(current->is_in_vthread_transition(), "");
   Handle vth = Handle(current, vthread);
-  JVMTI_ONLY(JVMTIEndTransition jst(current, vthread, is_mount, is_thread_start);)
+  JVMTI_ONLY(JVMTIEndTransition jst(current, vthread, is_mount, is_thread_start, to_java);)
 
   // End of the critical section. If this is an unmount, we need a release barrier before
   // clearing the in_transition flags to make sure any memory operations executed in the

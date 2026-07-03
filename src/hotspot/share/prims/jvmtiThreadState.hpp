@@ -140,6 +140,7 @@ class JvmtiThreadState : public CHeapObj<mtInternal> {
   bool              _saved_interp_only_mode;
   int               _hide_level;
   volatile int       _frame_pop_cnt;
+  OopHandle         _pending_async_exception;
 
  public:
   enum ExceptionState {
@@ -241,6 +242,11 @@ class JvmtiThreadState : public CHeapObj<mtInternal> {
   JvmtiThreadState *next()                  {
     return _next;
   }
+
+  bool has_pending_async_exception() const;
+  oop pending_async_exception() const;
+  void set_pending_async_exception(oop o);
+  void clear_pending_async_exception();
 
   // Optimizations for FramePop support.
   static ByteSize frame_pop_cnt_offset() { return byte_offset_of(JvmtiThreadState, _frame_pop_cnt); }
